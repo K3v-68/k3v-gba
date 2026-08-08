@@ -16,7 +16,7 @@ from typing import Iterable
 
 CORE_DIRECTORY = "K3V.GBA"
 CORE_AUTHOR = "K3V"
-CORE_SHORTNAME = "K3V GBA"
+CORE_SHORTNAME = "GBA"
 ARCHIVE_BASENAME = "K3V.GBA"
 PLATFORM_ID = "gba"
 PACKAGE_ROOTS = ("Assets", "Cores", "Platforms")

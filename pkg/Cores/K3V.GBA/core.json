@@ -5,7 +5,7 @@
       "platform_ids": [
         "gba"
       ],
-      "shortname": "K3V GBA",
+      "shortname": "GBA",
       "description": "GBA with RTC, save states and fast-forward",
       "author": "K3V",
       "url": "https://github.com/KevinGaudry/k3v-gba",

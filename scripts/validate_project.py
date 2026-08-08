@@ -46,7 +46,7 @@ def validate_core(root: Path) -> None:
     metadata = core["metadata"]
     expected = {
         "author": "K3V",
-        "shortname": "K3V GBA",
+        "shortname": "GBA",
         "url": CORE_URL,
     }
     for key, value in expected.items():
@@ -54,6 +54,12 @@ def validate_core(root: Path) -> None:
             raise ValueError(
                 f"core metadata {key} must be {value!r}, found {metadata.get(key)!r}"
             )
+    required_directory = f"{metadata['author']}.{metadata['shortname']}"
+    if core_root.name != required_directory:
+        raise ValueError(
+            "core folder must match metadata author and shortname exactly: "
+            f"{core_root.name!r} != {required_directory!r}"
+        )
     version = metadata.get("version")
     if not isinstance(version, str) or SEMVER.fullmatch(version) is None:
         raise ValueError(f"core version must be semantic x.y.z, found {version!r}")
