@@ -76,6 +76,29 @@ def check_or_write(path: Path, expected: bytes, check: bool) -> None:
     path.write_bytes(expected)
 
 
+def check_or_write_png(path: Path, expected: Image.Image, check: bool) -> None:
+    """Check PNG image content without depending on platform compression bytes."""
+    if check:
+        if not path.is_file():
+            raise ValueError(f"generated artwork is stale or missing: {path}")
+        try:
+            with Image.open(path) as actual:
+                actual.load()
+                matches = (
+                    actual.size == expected.size
+                    and actual.mode == expected.mode
+                    and actual.tobytes() == expected.tobytes()
+                )
+        except OSError as error:
+            raise ValueError(f"generated artwork is unreadable: {path}") from error
+        if not matches:
+            raise ValueError(f"generated artwork is stale or missing: {path}")
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(png_bytes(expected))
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -102,8 +125,11 @@ def main() -> int:
     try:
         with Image.open(master_path) as master:
             icon = build_icon(master)
-        check_or_write(icon_png, png_bytes(icon), args.check)
-        check_or_write(preview_png, png_bytes(icon, scale=12), args.check)
+        preview = icon.resize(
+            (icon.width * 12, icon.height * 12), Image.Resampling.NEAREST
+        )
+        check_or_write_png(icon_png, icon, args.check)
+        check_or_write_png(preview_png, preview, args.check)
         check_or_write(icon_bin, encode_pocket_monochrome(icon), args.check)
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
