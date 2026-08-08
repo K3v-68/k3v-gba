@@ -319,7 +319,6 @@ io_pad_controller ipm (
     wire    [31:0]  bridge_addr;
     wire            bridge_rd;
     wire    [31:0]  bridge_rd_data;
-    wire            bridge_rd_data_valid;
     wire            bridge_wr;
     wire    [31:0]  bridge_wr_data;
 
@@ -333,7 +332,6 @@ io_bridge_peripheral ibs (
     .pmp_addr       ( bridge_addr ),
     .pmp_rd         ( bridge_rd ),
     .pmp_rd_data    ( bridge_rd_data ),
-    .pmp_rd_ready   ( bridge_rd_data_valid ),
     .pmp_wr         ( bridge_wr ),
     .pmp_wr_data    ( bridge_wr_data ),
 
@@ -455,7 +453,6 @@ core_top ic (
     .bridge_addr            ( bridge_addr ),
     .bridge_rd              ( bridge_rd ),
     .bridge_rd_data         ( bridge_rd_data ),
-    .bridge_rd_data_valid   ( bridge_rd_data_valid ),
     .bridge_wr              ( bridge_wr ),
     .bridge_wr_data         ( bridge_wr_data ),
     

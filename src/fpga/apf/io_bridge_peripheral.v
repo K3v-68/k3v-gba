@@ -60,13 +60,12 @@ output  reg     [31:0]  pmp_addr,
 output  reg             pmp_addr_valid,
 output  reg             pmp_rd,
 input   wire    [31:0]  pmp_rd_data,
-input   wire            pmp_rd_ready,
 output  reg             pmp_wr,
 output  reg     [31:0]  pmp_wr_data,
 
-inout   reg             phy_spimosi,
-inout   reg             phy_spimiso,
-inout   reg             phy_spiclk,
+inout   wire            phy_spimosi,
+inout   wire            phy_spimiso,
+inout   wire            phy_spiclk,
 input   wire            phy_spiss
 
 );
@@ -99,6 +98,20 @@ synch_3 s02(phy_spiss, phy_spiss_s, clk, phy_spiss_r, phy_spiss_f);
     reg [1:0]   addr_cnt;
     reg [1:0]   data_cnt;
     reg [6:0]   read_cnt;
+
+    // Explicit tri-state drivers keep the physical behavior of the original
+    // APF wrapper while making the inout ports legal in standard simulators.
+    reg         phy_spimosi_out;
+    reg         phy_spimiso_out;
+    reg         phy_spiclk_out;
+    assign phy_spimosi = phy_spimosi_out;
+    assign phy_spimiso = phy_spimiso_out;
+    assign phy_spiclk  = phy_spiclk_out;
+
+    reg [1:0]   rx_latch_idx;
+    reg [7:0]   rx_dat;
+    reg [7:0]   rx_byte;
+    reg         rx_byte_done;
 
     // synchronize rd byte flag's rising edge into clk
     wire rx_byte_done_s, rx_byte_done_r;
@@ -210,12 +223,12 @@ always @(posedge clk) begin
     ST_READ_0: begin
         pmp_addr_valid <= 1;
 
-        // Preserve the original four-cycle minimum, then wait for an explicit
-        // completed response. A failed external-memory read therefore stalls
-        // the SPI transaction instead of returning the previous/default word.
-        if (read_cnt < 4-1)
-            read_cnt <= read_cnt + 1'b1;
-        else if (pmp_rd_ready) begin
+        // PMP reads are deliberately pipelined by one 32-bit word. Return the
+        // word prepared by the previous pmp_rd pulse immediately, then issue
+        // the next pmp_rd in ST_READ_1. Waiting here for the new word breaks
+        // Pocket bridge timing and produces the 0xDEADDEAD timeout sentinel.
+        read_cnt <= read_cnt + 1'b1;
+        if(read_cnt == 4-1) begin
             // load the buffer with the current data
             // and give the current buffer contents to bridge
             spis_word_tx <= pmp_rd_data_e;
@@ -251,9 +264,9 @@ always @(posedge clk) begin
     ST_SIDLE: begin
         spis_count <= 0;
         
-        phy_spiclk <= 1'bZ;
-        phy_spimosi <= 1'bZ;
-        phy_spimiso <= 1'bZ;
+        phy_spiclk_out <= 1'bZ;
+        phy_spimosi_out <= 1'bZ;
+        phy_spimiso_out <= 1'bZ;
         
         if(spis_tx) begin
             spis_word <= spis_word_tx;
@@ -262,29 +275,29 @@ always @(posedge clk) begin
     end
     // drive high first
     ST_SEND_N: begin
-        phy_spiclk <= 1'b1;
-        phy_spimosi <= 1'b1;
-        phy_spimiso <= 1'b1;
+        phy_spiclk_out <= 1'b1;
+        phy_spimosi_out <= 1'b1;
+        phy_spimiso_out <= 1'b1;
         spis <= ST_SEND_0;  
     end
     // tx, shift out bits
     ST_SEND_0: begin        
-        phy_spiclk <= 0;    
+        phy_spiclk_out <= 0;
         spis <= ST_SEND_1;      
-        phy_spimosi <= spis_word[31];
-        phy_spimiso <= spis_word[30];
+        phy_spimosi_out <= spis_word[31];
+        phy_spimiso_out <= spis_word[30];
         spis_word <= {spis_word[29:0], 2'b00};  
     end
     ST_SEND_1: begin        
-        phy_spiclk <= 1;    
+        phy_spiclk_out <= 1;
         spis <= ST_SEND_0;      
         spis_count <= spis_count + 1'b1;    
         if(spis_count == 15) spis <= ST_SEND_2; 
     end
     ST_SEND_2: begin        
-        phy_spiclk <= 1'b1; 
-        phy_spimosi <= 1'b1;
-        phy_spimiso <= 1'b1;
+        phy_spiclk_out <= 1'b1;
+        phy_spimosi_out <= 1'b1;
+        phy_spimiso_out <= 1'b1;
         spis <= ST_SEND_3;      
         spis_done <= 1; 
     end
@@ -305,11 +318,6 @@ end
 //
 // clock domain: phy_spiclk rising edge
 //
-    reg [1:0]   rx_latch_idx;
-    reg [7:0]   rx_dat;
-    reg [7:0]   rx_byte;    // latched by clk, but upon a synchronized trigger
-    reg         rx_byte_done;
-    
 always @(posedge phy_spiclk or posedge phy_spiss) begin
     
     if(phy_spiss) begin

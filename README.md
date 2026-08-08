@@ -51,9 +51,10 @@ On macOS, merge folders manually because Finder may replace existing folders.
 
 ## Verification
 
-The regression suite covers RTC behavior, save loading/unloading across
-asynchronous clock domains, PSRAM handshakes, invalid save rejection, and stalled
-memory responses. Release builds additionally require a clean Quartus compile,
+The regression suite covers RTC behavior, Pocket bridge read pipelining, save
+loading/unloading across asynchronous clock domains, PSRAM handshakes, invalid
+save rejection, and stalled memory responses. Release builds additionally
+require a clean Quartus compile,
 fresh output files, complete custom TimeQuest reports, no critical warnings, and
 non-negative timing slack. See [AUDIT_REPORT.md](AUDIT_REPORT.md).
 

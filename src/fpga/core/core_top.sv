@@ -174,7 +174,6 @@ output  wire            bridge_endian_little,
 input   wire    [31:0]  bridge_addr,
 input   wire            bridge_rd,
 output  reg     [31:0]  bridge_rd_data,
-output  reg             bridge_rd_data_valid,
 input   wire            bridge_wr,
 input   wire    [31:0]  bridge_wr_data,
 
@@ -1539,22 +1538,10 @@ wire [31:0] ss_bridge_rd_data;
 
 always @(*) begin
     casex (bridge_addr)
-    32'h2xxxxxxx: begin
-        bridge_rd_data <= save_read_bridge_data;
-        bridge_rd_data_valid <= save_read_bridge_valid;
-    end
-    32'h4xxxxxxx: begin
-        bridge_rd_data <= ss_bridge_rd_data;
-        bridge_rd_data_valid <= 1'b1;
-    end
-    32'hF8xxxxxx: begin
-        bridge_rd_data <= cmd_bridge_rd_data;
-        bridge_rd_data_valid <= 1'b1;
-    end
-    default: begin
-        bridge_rd_data <= 0;
-        bridge_rd_data_valid <= 1'b1;
-    end
+    32'h2xxxxxxx: bridge_rd_data <= save_read_bridge_data;
+    32'h4xxxxxxx: bridge_rd_data <= ss_bridge_rd_data;
+    32'hF8xxxxxx: bridge_rd_data <= cmd_bridge_rd_data;
+    default:      bridge_rd_data <= 0;
     endcase
 end
 
