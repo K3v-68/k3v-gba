@@ -20,8 +20,12 @@ CORE_SHORTNAME = "K3V GBA"
 ARCHIVE_BASENAME = "K3V.GBA"
 PLATFORM_ID = "gba"
 PACKAGE_ROOTS = ("Assets", "Cores", "Platforms")
+PACKAGE_DIRECTORIES = (
+    "Assets/",
+    "Assets/gba/",
+    "Assets/gba/common/",
+)
 PACKAGE_TREES = (
-    ("Assets", "Assets"),
     (f"Cores/{CORE_DIRECTORY}", f"Cores/{CORE_DIRECTORY}"),
     ("Platforms", "Platforms"),
 )
@@ -111,13 +115,17 @@ def load_metadata(package_root: Path) -> dict:
 
 
 def collect_package_files(package_root: Path) -> list[tuple[Path, str]]:
-    files: list[tuple[Path, str]] = []
+    # Directory entries are emitted explicitly so the install ZIP creates the
+    # documented ROM/BIOS path without shipping placeholder files.
+    files: list[tuple[Path, str]] = [
+        (package_root, archive_name) for archive_name in PACKAGE_DIRECTORIES
+    ]
     for source_name, archive_root in PACKAGE_TREES:
         root = package_root / source_name
         if not root.is_dir():
             raise ValueError(f"Missing required package directory: {root}")
-        # Keep explicit directory entries so an intentionally empty Assets tree
-        # and the selected core root survive extraction.
+        # Keep explicit directory entries so the selected package roots survive
+        # extraction even when their contents change between build stages.
         files.append((root, f"{archive_root}/"))
         for path in root.rglob("*"):
             if path.is_symlink():

@@ -77,6 +77,19 @@ def validate_manifest(root: Path) -> None:
     package_release = load_module(root / "scripts/package_release.py", "package_release")
     files = package_release.collect_package_files(root / "pkg")
     names = [archive_name for _, archive_name in files]
+    required_asset_directories = {
+        "Assets/",
+        "Assets/gba/",
+        "Assets/gba/common/",
+    }
+    missing_asset_directories = required_asset_directories.difference(names)
+    if missing_asset_directories:
+        raise ValueError(
+            "package is missing required asset directories: "
+            + ", ".join(sorted(missing_asset_directories))
+        )
+    if any(name.endswith(".gitkeep") for name in names):
+        raise ValueError("placeholder files must not enter the release package")
     foreign = [
         name
         for name in names
@@ -97,6 +110,10 @@ def validate_manifest(root: Path) -> None:
             archived_names = archive.namelist()
         if archived_names != names:
             raise ValueError("ZIP entries differ from the validated package manifest")
+        for directory in required_asset_directories:
+            info = archive.getinfo(directory)
+            if not info.is_dir():
+                raise ValueError(f"ZIP entry is not a directory: {directory}")
         if any(name.startswith("Cores/Spiritualized") for name in archived_names):
             raise ValueError("rejected compatibility core leaked into K3V package")
     print(f"Validated K3V-only package manifest ({len(names)} ZIP entries)")
