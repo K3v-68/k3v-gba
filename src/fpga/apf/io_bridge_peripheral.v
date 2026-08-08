@@ -74,10 +74,22 @@ input   wire            phy_spiss
 // clock domain: clk (74.25mhz) rising edge
 //
     wire reset_n_s;
-synch_3 s00(reset_n, reset_n_s, clk);
+synch_3 s00 (
+    .i(reset_n),
+    .o(reset_n_s),
+    .clk(clk),
+    .rise(),
+    .fall()
+);
 
     wire endian_little_s;
-synch_3 s01(endian_little, endian_little_s, clk);
+synch_3 s01 (
+    .i(endian_little),
+    .o(endian_little_s),
+    .clk(clk),
+    .rise(),
+    .fall()
+);
 
     wire phy_spiss_s, phy_spiss_r, phy_spiss_f;
 synch_3 s02(phy_spiss, phy_spiss_s, clk, phy_spiss_r, phy_spiss_f);
@@ -115,7 +127,13 @@ synch_3 s02(phy_spiss, phy_spiss_s, clk, phy_spiss_r, phy_spiss_f);
 
     // synchronize rd byte flag's rising edge into clk
     wire rx_byte_done_s, rx_byte_done_r;
-synch_3 s03(rx_byte_done, rx_byte_done_s, clk, rx_byte_done_r);
+synch_3 s03 (
+    .i(rx_byte_done),
+    .o(rx_byte_done_s),
+    .clk(clk),
+    .rise(rx_byte_done_r),
+    .fall()
+);
     
     reg [4:0]   spis;
     localparam  ST_SIDLE        = 'd1;
