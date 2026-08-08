@@ -1,0 +1,36 @@
+{
+  "core": {
+    "magic": "APF_VER_1",
+    "metadata": {
+      "platform_ids": [
+        "gba"
+      ],
+      "shortname": "K3V GBA",
+      "description": "GBA with RTC, save states and fast-forward",
+      "author": "K3V",
+      "url": "https://github.com/KevinGaudry/k3v-gba",
+      "version": "0.1.0",
+      "date_release": "2026-08-07"
+    },
+    "framework": {
+      "target_product": "Analogue Pocket",
+      "version_required": "1.1",
+      "sleep_supported": true,
+      "dock": {
+        "supported": true,
+        "analog_output": false
+      },
+      "hardware": {
+        "link_port": true,
+        "cartridge_adapter": -1
+      }
+    },
+    "cores": [
+      {
+        "name": "default",
+        "id": 0,
+        "filename": "bitstream.rbf_r"
+      }
+    ]
+  }
+}

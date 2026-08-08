@@ -1,0 +1,165 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Bump version
+        id: version
+        run: |
+          CURRENT=$(jq -r '.core.metadata.version' pkg/Cores/K3V.GBA/core.json)
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          case "${{ inputs.bump }}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+          NEW="${MAJOR}.${MINOR}.${PATCH}"
+          jq --arg v "$NEW" '.core.metadata.version = $v' pkg/Cores/K3V.GBA/core.json > tmp.json && mv tmp.json pkg/Cores/K3V.GBA/core.json
+          jq --arg d "$(date -u +%Y-%m-%d)" '.core.metadata.date_release = $d' pkg/Cores/K3V.GBA/core.json > tmp.json && mv tmp.json pkg/Cores/K3V.GBA/core.json
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "Bumped $CURRENT -> $NEW"
+
+      - name: Install regression dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ghdl iverilog python3-pil
+
+      - name: Run regressions
+        run: python3 scripts/run_tests.py
+
+      - name: Compile
+        run: |
+          mkdir -p build_output
+          set -o pipefail
+          docker run --rm --platform linux/amd64 \
+            -v "${{ github.workspace }}:/build" -w /build \
+            raetro/quartus@sha256:817a783727492269d33aa98c903e8efc216e95d785ee76bfc8f426eddee98d0b \
+            quartus_sh -t generate.tcl 2>&1 | tee build_output/quartus-build.log
+
+      - name: Enforce timing and report gates
+        run: |
+          scripts/print_timing.sh \
+            src/fpga/build/output_files/ap_core.sta.summary \
+            build_output/reports/ap_core.sta.clock_summary.rpt
+          ! grep -Eq '^[[:space:]]*Critical Warning' build_output/quartus-build.log
+          for report in \
+            ap_core.sta.paths_setup.rpt \
+            ap_core.sta.paths_setup_current_0c.rpt \
+            ap_core.sta.paths_hold.rpt \
+            ap_core.sta.clock_summary.rpt \
+            ap_core.sta.sdram_write.rpt \
+            ap_core.sta.sdram_read.rpt \
+            ap_core.sta.cram0_output_setup.rpt \
+            ap_core.sta.cram0_input_setup.rpt \
+            ap_core.sta.cram0_output_hold.rpt \
+            ap_core.sta.cram0_input_hold.rpt; do
+            test -s "build_output/reports/$report"
+          done
+
+      - name: Reverse bitstream
+        run: python3 scripts/reverse_bitstream.py src/fpga/build/output_files/ap_core.rbf pkg/Cores/K3V.GBA/bitstream.rbf_r
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pkg/Cores/K3V.GBA/core.json
+          git commit -m "release v${{ steps.version.outputs.version }}"
+
+      - name: Package release zip
+        run: |
+          python3 scripts/package_release.py \
+            --output-dir dist \
+            --evidence build_output/quartus-build.log
+
+      - name: Push release tag
+        run: |
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin HEAD --tags
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          files: |
+            dist/K3V.GBA_${{ steps.version.outputs.version }}.zip
+            dist/K3V.GBA_${{ steps.version.outputs.version }}.zip.sha256
+            dist/K3V.GBA_${{ steps.version.outputs.version }}.provenance.json
+          generate_release_notes: true
+
+      - name: Extract timing closure failures
+        if: always()
+        run: |
+          STA="src/fpga/build/output_files/ap_core.sta.summary"
+          if [ -f "$STA" ]; then
+            awk '
+              /^Type/  { type_line = $0 }
+              /^Slack/ { slack_line = $0; sub(/^Slack *: */, "", slack_line); slack = slack_line + 0 }
+              /^TNS/   {
+                tns_line = $0; sub(/^TNS *: */, "", tns_line); tns = tns_line + 0
+                if (slack < 0) {
+                  print type_line
+                  print "Slack: " slack_line
+                  print "TNS:   " tns_line
+                  print ""
+                }
+                type_line = ""; slack = 0
+              }
+            ' "$STA" > timing.txt
+          fi
+          if [ ! -s timing.txt ]; then
+            echo "No timing closure failures." > timing.txt
+          fi
+
+      - name: Upload timing report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: timing
+          path: timing.txt
+
+      - name: Check custom STA reports
+        if: always()
+        run: |
+          echo "=== Custom STA reports ==="
+          ls -la build_output/reports/ 2>/dev/null || echo "No custom STA reports directory found"
+          echo "=== Output files ==="
+          ls -la src/fpga/build/output_files/*.rpt src/fpga/build/output_files/*.summary 2>/dev/null || true
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: |
+            build_output/quartus-build.log
+            src/fpga/build/output_files/ap_core.fit.summary
+            src/fpga/build/output_files/ap_core.fit.rpt
+            src/fpga/build/output_files/ap_core.sta.summary
+            src/fpga/build/output_files/ap_core.sta.rpt
+            src/fpga/build/output_files/ap_core.flow.rpt
+            build_output/reports/

@@ -1,0 +1,23 @@
+K3V GBA provenance and third-party notices
+==========================================
+
+K3V GBA is a renamed and substantially repaired distribution of an open-source
+Analogue Pocket port of the MiSTer Game Boy Advance FPGA core.
+
+Source lineage retained for copyright and license compliance:
+
+- GBA_MiSTer contributors:
+  https://github.com/MiSTer-devel/GBA_MiSTer
+- Pocket-port import:
+  https://github.com/mincer-ray/openfpga-GBA
+  tag v0.6.2, commit b08568fa60ff6f5f918cca5763f5b1923ed2d3db
+- K3V GBA RTC, save-path, PSRAM, validation, packaging, artwork, and build
+  changes begin with release v0.1.0.
+
+Additional incorporated work includes Analogue's openFPGA framework, Intel/
+Altera generated IP, analogue-pocket-utils-derived integration patterns,
+OpenGateware audio/filter components, and other contributors identified in
+individual source headers.
+
+Names and project links in this notice are used only to preserve provenance and
+license compliance. They do not imply endorsement of K3V GBA.

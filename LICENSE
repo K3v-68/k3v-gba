@@ -1,0 +1,15 @@
+K3V GBA licensing
+=================
+
+K3V-authored source changes and build tooling are offered under
+GPL-3.0-or-later unless a file states otherwise.
+
+The repository incorporates third-party components under GPL-2.0,
+GPL-2.0-or-later, GPL-3.0-or-later, MIT, the Analogue Pocket Framework
+license, and Intel/Altera IP terms. Each file retains its controlling notice.
+
+Complete commonly used license texts are in LICENSES/. Analogue APF and
+Intel/Altera files retain their full notices in their source headers.
+
+No license is granted to Nintendo firmware, BIOS images, games, trademarks,
+or other assets not included in this repository.

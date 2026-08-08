@@ -1,0 +1,104 @@
+{
+  "interact": {
+    "magic": "APF_VER_1",
+    "variables": [
+      {
+        "name": "Reset Core",
+        "id": 10,
+        "type": "action",
+        "enabled": true,
+        "address": "0xF0000000",
+        "value": 1
+      },
+      {
+        "name": "Fast Forward Mode",
+        "id": 20,
+        "type": "list",
+        "enabled": true,
+        "address": "0x80",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Hold",
+            "value": 0
+          },
+          {
+            "name": "Toggle",
+            "value": 1
+          },
+          {
+            "name": "Disabled",
+            "value": 2
+          }
+        ]
+      },
+      {
+        "name": "Button Turbo",
+        "id": 25,
+        "type": "list",
+        "enabled": true,
+        "address": "0x88",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Disabled",
+            "value": 0
+          },
+          {
+            "name": "Turbo A Button",
+            "value": 1
+          },
+          {
+            "name": "Turbo B Button",
+            "value": 2
+          }
+        ]
+      },
+      {
+        "name": "Fast Forward Render",
+        "id": 26,
+        "type": "list",
+        "enabled": true,
+        "address": "0x8C",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 1,
+        "options": [
+          {
+            "name": "Fastest",
+            "value": 0
+          },
+          {
+            "name": "Stable",
+            "value": 1
+          }
+        ]
+      },
+      {
+        "name": "Force Quirk (Dangerous)",
+        "id": 30,
+        "type": "list",
+        "enabled": true,
+        "address": "0x84",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Off",
+            "value": 0
+          },
+          {
+            "name": "On",
+            "value": 1
+          }
+        ]
+      }
+    ],
+    "messages": []
+  }
+}
