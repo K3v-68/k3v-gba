@@ -266,7 +266,17 @@ architecture arch of gba_memorymux is
    
    signal SAVESTATE_EEPROM_BACK : std_logic_vector(31 downto 0);
    signal SAVESTATE_FLASH_BACK  : std_logic_vector(16 downto 0);
-   
+
+   -- mem_bus_done is a single-cycle handshake consumed throughout the CPU.
+   -- Keep the source register in place (rather than retiming its state mux
+   -- across the hierarchy) while allowing bounded local duplicates for its
+   -- high fan-out destinations.  This preserves protocol latency and reduces
+   -- the critical routing load seen by the fitter.
+   attribute preserve : boolean;
+   attribute preserve of mem_bus_done : signal is true;
+   attribute maxfan : integer;
+   attribute maxfan of mem_bus_done : signal is 16;
+
 begin
 
    -- Expose the full memory sequencer state so the Pocket-side save unloader
