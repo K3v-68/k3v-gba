@@ -170,3 +170,17 @@ set_multicycle_path -setup 2 \
 set_multicycle_path -hold 1 \
   -from [get_registers {*igba_savestates|internal_bus_out.Adr*}] \
   -to   [get_registers {*eProcReg_gba*Dout_buffer*}]
+
+# Savestate CPU-register restore path:
+# The internal savestate registers are populated near the start of the load
+# sequence.  The controller then restores register RAM and save-memory regions
+# before pulsing reset, which is when gba_cpu captures SAVESTATE_REGS into its
+# live register file.  The source data is therefore stable for far longer than
+# one clk_sys period before capture.  Constrain this registered restore path as
+# two-cycle so fitter placement is not determined by an inactive one-cycle path.
+set_multicycle_path -setup 2 \
+  -from [get_registers {*eProcReg_gba*Dout_buffer*}] \
+  -to   [get_registers {*gba_cpu:igba_cpu|regs*}]
+set_multicycle_path -hold 1 \
+  -from [get_registers {*eProcReg_gba*Dout_buffer*}] \
+  -to   [get_registers {*gba_cpu:igba_cpu|regs*}]
