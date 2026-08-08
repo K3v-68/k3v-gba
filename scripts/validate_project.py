@@ -122,7 +122,13 @@ def validate_public_identity(root: Path) -> None:
     textual_suffixes = {
         ".json", ".md", ".txt", ".tcl", ".py", ".ps1", ".sh", ".sv", ".v", ".vhd"
     }
-    stale_tokens = ("mincer-ray", "k3v.k3v_gba", "REPAIR_REPORT.md")
+    # Assemble the forbidden spellings so this validator can scan itself without
+    # treating its own rules as stale public identity references.
+    stale_tokens = (
+        "-".join(("mincer", "ray")),
+        ".".join(("k3v", "k3v_gba")),
+        "_".join(("REPAIR", "REPORT.md")),
+    )
     offenders: list[str] = []
     candidates = set(tracked_paths(root))
     candidates.update(
