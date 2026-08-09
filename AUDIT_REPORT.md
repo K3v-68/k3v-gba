@@ -127,17 +127,15 @@ single core package.
 
 ## Synthesized release candidate
 
-The release image was compiled from a clean, local non-OneDrive workspace with
-Quartus Prime Lite 21.1.1 Build 850, Standard Fit, and seed 9 for Cyclone V
-`5CEBA4F23C8`. Seed 8 missed one slow-corner setup path by 0.001 ns and was
-therefore rejected; seed 9 closes every analyzed timing check without changing
-the logic netlist. The final fit uses 17,693 of 18,480 ALMs (96%), 278 of 308
-RAM blocks (90%), and 26 of 66 DSP blocks (39%).
+The `v0.1.3` release candidate was compiled in GitHub Actions with Quartus Prime
+Lite 21.1.1 Build 850, Standard Fit, and seed 9 for Cyclone V `5CEBA4F23C8`.
+The final fit uses 17,655 of 18,480 ALMs (96%), 278 of 308 RAM blocks (90%),
+and 26 of 66 DSP blocks (39%).
 
 TimeQuest reports zero negative-slack paths and TNS `0.000` at every analyzed
-corner. The worst system-clock setup slack is `+0.094 ns` at the slow 1100 mV
-85 C corner and `+0.088 ns` at the slow 1100 mV 0 C corner. The smallest hold
-slack in the complete summary is `+0.076 ns` at the fast 1100 mV 0 C corner.
+corner. The worst system-clock setup slack is `+0.299 ns` at the slow 1100 mV
+85 C corner and `+0.313 ns` at the slow 1100 mV 0 C corner. The smallest hold
+slack in the complete summary is `+0.029 ns` at the fast 1100 mV 0 C corner.
 The design is fully constrained for both setup and hold.
 
 The raw Quartus RBF is 2,107,552 bytes. The packaged `bitstream.rbf_r` has the
