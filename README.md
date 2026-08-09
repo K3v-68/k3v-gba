@@ -11,7 +11,7 @@ first public K3V release is `v0.1.0`.
 
 ## Features
 
-- RTC with powered-off catch-up and validated persistent state
+- RTC with powered-off catch-up and separate per-game `.rtc` state
 - Save states and sleep
 - Fast-forward on Y, with Fastest and Stable rendering modes
 - Button turbo on X
@@ -24,10 +24,27 @@ adapter, and Single-Pak download are not currently implemented.
 
 ## RTC and save compatibility
 
-RTC games append a 16-byte RTC footer to the normal save payload. A core that
-does not understand that footer may reject the enlarged save. The bundled
-[`rtc-save-tool.html`](pages/rtc-save-tool.html) can inspect, add, or remove the
-footer locally in a browser; it does not upload saves.
+RTC games use two independent files with the ROM's name in Pocket's mirrored
+save tree:
+
+- `/Saves/gba/common/.../<game>.sav` contains only the standard 64 or 128 KiB
+  cartridge save.
+- `/Saves/gba/K3V.GBA/.../<game>.rtc` contains K3V's 16-byte powered-off RTC
+  state. It is core-specific so another GBA core cannot overwrite it using an
+  incompatible `.rtc` format.
+
+Existing `v0.1.2` saves with an appended 16-byte footer migrate automatically.
+The core accepts the old record and on the next clean exit writes a
+standard-size `.sav` plus the `.rtc` sidecar. If both records are present, the
+legacy footer is treated as the migration source; this also preserves changes
+made after temporarily returning to `v0.1.2`. Back up saves before moving
+between core versions; older releases do not load the new sidecar.
+
+This uses the same per-game `.rtc` sidecar idea as newer EverDrive GBA
+implementations, but the binary RTC formats are different and are not
+interchangeable. The bundled legacy
+[`rtc-save-tool.html`](pages/rtc-save-tool.html) can still inspect, repair, or
+remove an appended footer locally in a browser; it does not upload saves.
 
 The **Force RTC (ROM Hacks)** setting is only for games that implement RTC but
 are not recognized automatically. It persists across games. Turn it off before

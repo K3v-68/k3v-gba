@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
+import os
 import random
 import re
 import shutil
@@ -183,6 +185,52 @@ def run_reference_checks(project_root: Path) -> None:
     gpio_source = (
         project_root / "src/fpga/gba/gba_gpioRTCSolarGyro.vhd"
     ).read_text(encoding="utf-8")
+
+    data_document = json.loads(
+        (project_root / "pkg/Cores/K3V.GBA/data.json").read_text(encoding="utf-8")
+    )
+    slots = data_document["data"]["data_slots"]
+    save_slot = next(slot for slot in slots if slot["id"] == 10)
+    rtc_slot = next(slot for slot in slots if slot["id"] == 11)
+    if save_slot.get("size_maximum") != "0x20010":
+        raise AssertionError("legacy footer import window was removed from Save slot")
+    if rtc_slot.get("address") != "0x21000000":
+        raise AssertionError("RTC sidecar is not mapped to its bridge subregion")
+    if not rtc_slot.get("nonvolatile") or rtc_slot.get("required"):
+        raise AssertionError("RTC sidecar must be optional and nonvolatile")
+    if (int(rtc_slot.get("parameters", "0"), 0) & 0x4) == 0:
+        raise AssertionError("RTC filename must be cloned from the ROM slot")
+    if (int(rtc_slot.get("parameters", "0"), 0) & 0x2) == 0:
+        raise AssertionError("RTC sidecar must use K3V's core-specific save path")
+    if rtc_slot.get("extensions", [None])[0] != "rtc":
+        raise AssertionError("RTC sidecar must use the .rtc extension")
+    if rtc_slot.get("size_exact") != 16:
+        raise AssertionError("RTC sidecar must be exactly 16 bytes")
+
+    core_source = (
+        project_root / "src/fpga/core/core_top.sv"
+    ).read_text(encoding="utf-8")
+    persistence_source = (
+        project_root / "src/fpga/core/rtc_persistence.sv"
+    ).read_text(encoding="utf-8")
+    required_sidecar_integration = (
+        "save_loader_addr[27:24] == 4'h1",
+        "save_unloader_addr[27:24] == 4'h1",
+        ".stored_record_present ( rtc_record_present_sys )",
+        "datatable_addr_r <= 10'd5",
+        "datatable_addr_r <= 10'd7",
+        "wire [31:0] save_size_bytes = flash_1m_s ? 32'h0002_0000 : 32'h0001_0000",
+    )
+    for required in required_sidecar_integration:
+        if required not in core_source:
+            raise AssertionError(f"RTC sidecar integration is missing: {required}")
+    if "rtc_persistence rtc_store" not in core_source:
+        raise AssertionError("RTC persistence module is not instantiated")
+    if (
+        "sidecar_record_valid" not in persistence_source
+        or "legacy_record_valid" not in persistence_source
+    ):
+        raise AssertionError("RTC source validation/migration logic is missing")
     if "CLK_FREQUENCY_HZ : positive := 100663296" not in clock_source:
         raise AssertionError("RTC clock default is not the measured PLL frequency")
     if "CLK_FREQUENCY_HZ => 100663296" not in gpio_source:
@@ -246,7 +294,7 @@ def run_reference_checks(project_root: Path) -> None:
 
     print(
         "Python RTC reference checks passed "
-        f"({len(cases)} directed + 201 full-range vectors)"
+        f"({len(cases)} directed + 201 full-range vectors + sidecar metadata)"
     )
 
 
@@ -301,6 +349,29 @@ def run_ghdl(project_root: Path, ghdl: str) -> None:
     )
 
 
+def run_iverilog(project_root: Path, iverilog: str, vvp: str) -> None:
+    rtl = project_root / "src/fpga/core/rtc_persistence.sv"
+    bench = project_root / "tests/rtc/tb_rtc_persistence.sv"
+    suite_bin = Path(iverilog).resolve().parent
+    environment = os.environ.copy()
+    environment["PATH"] = os.pathsep.join(
+        (str(suite_bin), str(suite_bin.parent / "lib"), environment.get("PATH", ""))
+    )
+    with tempfile.TemporaryDirectory(prefix="k3v-rtc-persistence-") as work_dir:
+        output = Path(work_dir) / "rtc_persistence.vvp"
+        subprocess.run(
+            [iverilog, "-g2012", "-Wall", "-s", "tb_rtc_persistence",
+             "-o", str(output), str(rtl), str(bench)],
+            check=True,
+            cwd=project_root,
+            env=environment,
+        )
+        subprocess.run(
+            [vvp, str(output)], check=True, cwd=project_root, env=environment
+        )
+    print("Icarus RTC persistence checks passed")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -318,6 +389,13 @@ def main() -> int:
         type=Path,
         help="explicit GHDL executable (useful for a portable toolchain)",
     )
+    parser.add_argument(
+        "--require-iverilog",
+        action="store_true",
+        help="fail instead of skipping sidecar RTL simulation when Icarus is unavailable",
+    )
+    parser.add_argument("--iverilog", type=Path, help="explicit iverilog executable")
+    parser.add_argument("--vvp", type=Path, help="explicit vvp executable")
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parents[2]
@@ -334,9 +412,22 @@ def main() -> int:
         if args.require_ghdl:
             raise SystemExit(message)
         print(f"WARNING: {message}")
-        return 0
+    else:
+        run_ghdl(project_root, ghdl)
 
-    run_ghdl(project_root, ghdl)
+    iverilog = str(args.iverilog.resolve()) if args.iverilog else shutil.which("iverilog")
+    vvp = str(args.vvp.resolve()) if args.vvp else shutil.which("vvp")
+    if iverilog is not None and not Path(iverilog).is_file():
+        raise SystemExit(f"iverilog executable does not exist: {iverilog}")
+    if vvp is not None and not Path(vvp).is_file():
+        raise SystemExit(f"vvp executable does not exist: {vvp}")
+    if iverilog is None or vvp is None:
+        message = "Icarus not found; RTC sidecar RTL scenario was not run"
+        if args.require_iverilog:
+            raise SystemExit(message)
+        print(f"WARNING: {message}")
+    else:
+        run_iverilog(project_root, iverilog, vvp)
     return 0
 
 

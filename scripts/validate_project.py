@@ -79,6 +79,45 @@ def validate_core(root: Path) -> None:
     print("Validated K3V identity and Pocket artwork dimensions")
 
 
+def validate_data_slots(root: Path) -> None:
+    path = root / "pkg/Cores" / CORE_DIRECTORY / "data.json"
+    slots = json.loads(path.read_text(encoding="utf-8"))["data"]["data_slots"]
+    ids = [slot["id"] for slot in slots]
+    addresses = [int(slot["address"], 0) for slot in slots]
+    if len(ids) != len(set(ids)):
+        raise ValueError("data slot IDs must be unique")
+    if len(addresses) != len(set(addresses)):
+        raise ValueError("data slot bridge addresses must be unique")
+
+    by_id = {slot["id"]: slot for slot in slots}
+    save_slot = by_id.get(10)
+    rtc_slot = by_id.get(11)
+    if save_slot is None or rtc_slot is None:
+        raise ValueError("Save slot 10 and RTC sidecar slot 11 are required")
+    if save_slot.get("size_maximum") != "0x20010":
+        raise ValueError("Save slot must retain the legacy-footer import window")
+    rtc_parameters = int(rtc_slot.get("parameters", "0"), 0)
+    expected_rtc = {
+        "required": False,
+        "nonvolatile": True,
+        "address": "0x21000000",
+        "size_exact": 16,
+    }
+    for key, value in expected_rtc.items():
+        if rtc_slot.get(key) != value:
+            raise ValueError(
+                f"RTC data slot {key} must be {value!r}, "
+                f"found {rtc_slot.get(key)!r}"
+            )
+    if (rtc_parameters & 0x4) == 0:
+        raise ValueError("RTC sidecar filename must be cloned from ROM slot 0")
+    if (rtc_parameters & 0x2) == 0:
+        raise ValueError("RTC sidecar must be isolated in K3V's core-specific path")
+    if rtc_slot.get("extensions", [None])[0] != "rtc":
+        raise ValueError("RTC sidecar's first extension must be rtc")
+    print("Validated separate per-ROM RTC sidecar data slot")
+
+
 def validate_manifest(root: Path) -> None:
     package_release = load_module(root / "scripts/package_release.py", "package_release")
     files = package_release.collect_package_files(root / "pkg")
@@ -188,6 +227,7 @@ def main() -> int:
     try:
         validate_json(root)
         validate_core(root)
+        validate_data_slots(root)
         validate_manifest(root)
         validate_public_identity(root)
     except (KeyError, OSError, ValueError, subprocess.CalledProcessError) as error:

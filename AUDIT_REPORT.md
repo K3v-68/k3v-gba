@@ -20,12 +20,12 @@ near-2x observation, so no crude divide-by-two correction was introduced.
 The old design also treated both transitions of a synchronized Pocket RTC
 notification as new, fast-forwarded elapsed seconds through the live calendar
 state machine, exposed intermediate catch-up state, omitted leap-day handling,
-and accepted an incompletely validated persisted footer.
+and accepted an incompletely validated persisted RTC record.
 
 The replacement RTC:
 
 - captures only the first Pocket epoch/BCD notification after configuration;
-- validates the complete 16-byte footer (epoch, packed BCD calendar, reserved
+- validates the complete 16-byte record (epoch, packed BCD calendar, reserved
   bits, and six padding bytes);
 - preserves a valid persisted calendar if the host clock moved backwards and
   clamps elapsed time to zero;
@@ -83,12 +83,18 @@ Save loading now:
   unload, rather than exposing them to Pocket writeback;
 - waits for the final physical PSRAM write, not merely FIFO acceptance, before
   finalization;
-- snapshots the RTC footer at the start of a save stream to avoid a torn tick.
+- writes RTC persistence to a separate, core-specific per-game `.rtc` sidecar;
+- imports the legacy appended footer and trims the `.sav` back to its standard
+  cartridge size on the next clean exit;
+- snapshots the live RTC at the start of the sidecar stream to avoid a torn
+  tick.
 
 ## Automated verification
 
-`tests/rtc` contains an independent Python reference and a self-checking
-VHDL-2008 testbench. It covers exact divider phase, uninterrupted 1 second,
+`tests/rtc` contains an independent Python reference plus self-checking
+VHDL-2008 and SystemVerilog testbenches. They cover exact divider phase,
+sidecar/legacy-record validation and migration, coherent sidecar serialization,
+uninterrupted 1 second,
 10 minutes, 1 hour, and 24 hours; powered-off catch-up; duplicate initialization;
 month/year/weekday/leap rollovers; host rollback; persisted restart; game write;
 RTC reset; invalid input defense; and collision priority.

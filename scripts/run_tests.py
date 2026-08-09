@@ -59,7 +59,21 @@ def main() -> int:
 
     run(root, [python, "scripts/validate_project.py"])
     run(root, [python, "scripts/build_artwork.py", "--check"])
-    run(root, [python, "tests/rtc/run.py", "--require-ghdl", "--ghdl", ghdl])
+    run(
+        root,
+        [
+            python,
+            "tests/rtc/run.py",
+            "--require-ghdl",
+            "--ghdl",
+            ghdl,
+            "--require-iverilog",
+            "--iverilog",
+            iverilog,
+            "--vvp",
+            vvp,
+        ],
+    )
     run(
         root,
         [

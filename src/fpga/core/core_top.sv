@@ -353,6 +353,9 @@ wire [15:0] save_loader_data;
 wire        save_loader_busy;
 wire        save_loader_ready;
 wire        save_loader_accept = save_loader_wr && save_loader_ready;
+wire        save_loader_is_cart = save_loader_addr[27:24] == 4'h0;
+wire        save_loader_is_rtc  = save_loader_addr[27:24] == 4'h1;
+wire        save_loader_known_slot = save_loader_is_cart | save_loader_is_rtc;
 reg         save_loader_grant;
 reg  [21:0] save_loader_grant_addr;
 reg  [15:0] save_loader_grant_data;
@@ -366,7 +369,8 @@ always @(posedge clk_sys) begin
     if (~pll_core_locked) begin
         save_loader_grant_addr <= 22'd0;
         save_loader_grant_data <= 16'd0;
-    end else if (save_loader_accept) begin
+    end else if (save_loader_accept && save_loader_is_cart &&
+                 save_loader_addr[23:0] < save_size_sys) begin
         save_loader_grant      <= 1'b1;
         save_loader_grant_addr <= save_loader_addr[21:1];
         save_loader_grant_data <= save_loader_data;
@@ -471,47 +475,25 @@ reg         busfsm_psram_write_high;
 reg         busfsm_psram_write_low;
 
 // Save unloader read bridge — captures PSRAM read result for the unloader
-// RTC region: addresses >= save_size_sys are served from RTC registers, not PSRAM
-wire save_unload_is_rtc = (save_size_sys != 24'd0) &&
-                          (save_unloader_addr[23:0] >= save_size_sys);
-
-// Snapshot the independently generated footer at the first body request so a
-// one-second tick cannot tear timestamp and calendar words during streaming.
-reg [31:0] rtc_unload_timestamp_snapshot;
-reg [41:0] rtc_unload_time_snapshot;
-
-// RTC data mux for save unloader (word index from low bits of byte addr)
-reg [15:0] rtc_unload_word;
-always @(*) begin
-    case (save_unloader_addr[3:1])
-        3'd0: rtc_unload_word = rtc_unload_timestamp_snapshot[15:0];
-        3'd1: rtc_unload_word = rtc_unload_timestamp_snapshot[31:16];
-        3'd2: rtc_unload_word = rtc_unload_time_snapshot[15:0];
-        3'd3: rtc_unload_word = rtc_unload_time_snapshot[31:16];
-        3'd4: rtc_unload_word = {6'b0, rtc_unload_time_snapshot[41:32]};
-        default: rtc_unload_word = 16'd0;
-    endcase
-end
+// Cart saves and RTC sidecars share this pipeline at 0x20000000 and 0x21000000.
+// Only cart reads reach PSRAM; RTC reads come from live registers.
+wire save_unload_is_cart = save_unloader_addr[27:24] == 4'h0;
+wire save_unload_is_rtc  = save_unloader_addr[27:24] == 4'h1;
+wire [15:0] rtc_unload_word;
 
 wire save_unloader_accept = save_unloader_rd && save_unloader_ready;
 
 always @(posedge clk_sys) begin
     save_unloader_data_valid <= 1'b0;
     if (~pll_core_locked) begin
-        save_unload_pending              <= 1'b0;
-        rtc_unload_timestamp_snapshot    <= 32'd0;
-        rtc_unload_time_snapshot         <= 42'd0;
+        save_unload_pending <= 1'b0;
     end else begin
         if (save_unloader_accept) begin
-            if (save_unloader_addr[23:0] == 24'd0) begin
-                rtc_unload_timestamp_snapshot <= rtc_timestamp_out;
-                rtc_unload_time_snapshot      <= rtc_savedtime_out;
-            end
             if (save_unload_is_rtc) begin
-                // RTC region has the same accepted/valid contract as PSRAM.
+                // RTC sidecar has the same accepted/valid contract as PSRAM.
                 save_unloader_data <= rtc_unload_word;
                 save_unloader_data_valid <= 1'b1;
-            end else begin
+            end else if (save_unload_is_cart) begin
                 save_unload_pending <= 1'b1;
             end
         end
@@ -567,7 +549,8 @@ always @(posedge clk_sys) begin
         save_fill_required    <= 1'b0;
         save_load_body_words  <= 17'd0;
     end else begin
-        if (save_loader_accept && save_loader_addr[23:0] < save_size_sys) begin
+        if (save_loader_accept && save_loader_is_cart &&
+            save_loader_addr[23:0] < save_size_sys) begin
             save_load_seen <= 1'b1;
             if (save_loader_addr[23:0] == (save_load_body_words << 1))
                 save_load_body_words <= save_load_body_words + 1'b1;
@@ -606,12 +589,14 @@ wire        save_mem_ready  = save_load_complete | save_clear_done;
 wire        clear_client_idle = (clr_state == CLR_IDLE) && !clr_wr;
 assign save_finalize_safe = !save_loader_busy && !save_loader_grant && !psram_busy &&
     !save_unload_pending && clear_client_idle && save_loader_settled;
-assign save_loader_ready = pll_core_locked && bus_client_idle && clear_client_idle &&
+assign save_loader_ready = pll_core_locked && save_loader_known_slot &&
+    bus_client_idle && clear_client_idle &&
     !save_loader_grant && !psram_busy && !save_unload_pending;
 assign save_unloader_ready = save_mem_ready && !save_load_failed &&
     save_unload_pause && !save_unload_pending &&
     bus_client_idle && clear_client_idle && !save_loader_grant &&
-    (save_unload_is_rtc || (!psram_busy && !save_loader_wr));
+    (save_unload_is_rtc ||
+     (save_unload_is_cart && !psram_busy && !save_loader_wr));
 
 always @(posedge clk_sys) begin
     clr_wr <= 0;
@@ -682,7 +667,7 @@ always @(*) begin
         psram_data_in    = 16'hFFFF;
         psram_write_high = 1;
         psram_write_low  = 1;
-    end else if (save_unloader_accept && !save_unload_is_rtc) begin
+    end else if (save_unloader_accept && save_unload_is_cart) begin
         // Save unloader read → die 1 (skip for RTC region)
         psram_write_en   = 0;
         psram_read_en    = 1;
@@ -1091,9 +1076,8 @@ always @(posedge clk_sys) begin
 end
 
 // ---- RTC Persistence ----
-// RTC data is appended as 5 x 16-bit words (10 bytes) after cart save data.
-// During boot load: snoop save_loader for RTC region, capture into registers.
-// During save writeback: override unloader data for RTC region addresses.
+// Pocket keeps the standard cart save in slot 10 and a 16-byte RTC sidecar in
+// slot 11. Legacy appended footers remain readable for one-launch migration.
 
 // RTC outputs from gba_top (active during gameplay)
 wire [31:0] rtc_timestamp_out;
@@ -1107,133 +1091,39 @@ wire        rtc_init_done;
 wire [23:0] save_size_sys = det_flash_1m  ? 24'h02_0000 :  // 128 KB
                                             24'h01_0000;   // 64 KB
 
-function automatic integer rtc_days_in_month(input integer year_value,
-                                              input integer month_value);
-begin
-    case (month_value)
-        1, 3, 5, 7, 8, 10, 12: rtc_days_in_month = 31;
-        4, 6, 9, 11:            rtc_days_in_month = 30;
-        2: rtc_days_in_month = ((year_value % 4) == 0) ? 29 : 28;
-        default: rtc_days_in_month = 0;
-    endcase
-end
-endfunction
-
-function automatic rtc_bcd_time_valid(input [41:0] value);
-    integer year_value;
-    integer month_value;
-    integer day_value;
-    integer wday_value;
-    integer hour_value;
-    integer minute_value;
-    integer second_value;
-begin
-    year_value   = (value[41:38] * 10) + value[37:34];
-    month_value  = (value[33] * 10) + value[32:29];
-    day_value    = (value[28:27] * 10) + value[26:23];
-    wday_value   = value[22:20];
-    hour_value   = (value[19:18] * 10) + value[17:14];
-    minute_value = (value[13:11] * 10) + value[10:7];
-    second_value = (value[6:4] * 10) + value[3:0];
-
-    rtc_bcd_time_valid =
-        (value[41:38] <= 9) && (value[37:34] <= 9) &&
-        (value[32:29] <= 9) &&
-        (value[28:27] <= 3) && (value[26:23] <= 9) &&
-        (value[19:18] <= 2) && (value[17:14] <= 9) &&
-        (value[13:11] <= 5) && (value[10:7] <= 9) &&
-        (value[6:4] <= 5) && (value[3:0] <= 9) &&
-        (month_value >= 1) && (month_value <= 12) &&
-        (day_value >= 1) && (day_value <= rtc_days_in_month(year_value, month_value)) &&
-        (wday_value <= 6) && (hour_value <= 23) &&
-        (minute_value <= 59) && (second_value <= 59);
-end
-endfunction
-
-// RTC data captured during save loading
-reg [31:0] rtc_loaded_timestamp;
-reg [41:0] rtc_loaded_savedtime;
-reg        rtc_data_captured;
-reg [5:0]  rtc_loaded_time_reserved;
-reg [47:0] rtc_loaded_padding;
-reg [7:0]  rtc_loaded_word_seen;
+wire [31:0] rtc_loaded_timestamp;
+wire [41:0] rtc_loaded_savedtime;
+wire        rtc_data_captured;
+wire        rtc_record_present_sys;
 
 wire [41:0] rtc_pocket_savedtime = {
     rtc_host_bcd[55:48], rtc_host_bcd[44:40], rtc_host_bcd[37:32],
     rtc_host_bcd[26:24], rtc_host_bcd[21:16], rtc_host_bcd[14:8],
     rtc_host_bcd[6:0]
 };
-wire rtc_host_epoch_valid = (rtc_host_epoch != 32'd0) &&
-                            (rtc_host_epoch != 32'hFFFF_FFFF);
-wire rtc_loaded_footer_valid =
-    (rtc_loaded_word_seen == 8'hFF) &&
-    (rtc_loaded_time_reserved == 6'd0) && (rtc_loaded_padding == 48'd0) &&
-    (rtc_loaded_timestamp != 32'd0) &&
-    (rtc_loaded_timestamp != 32'hFFFF_FFFF) &&
-    rtc_host_epoch_valid &&
-    rtc_bcd_time_valid(rtc_loaded_savedtime);
-
-// Snoop save_loader writes for RTC region (bytes beyond save_size_sys)
-always @(posedge clk_sys) begin
-    if (~pll_core_locked) begin
-        rtc_data_captured    <= 0;
-        rtc_loaded_timestamp <= 32'd0;
-        rtc_loaded_savedtime <= 42'd0;
-        rtc_loaded_time_reserved <= 6'd0;
-        rtc_loaded_padding   <= 48'd0;
-        rtc_loaded_word_seen <= 8'd0;
-    end else if (save_loader_accept && save_size_sys != 24'd0) begin
-        if (save_loader_addr[23:0] == save_size_sys)
-            begin rtc_loaded_timestamp[15:0] <= save_loader_data; rtc_loaded_word_seen[0] <= 1'b1; end
-        if (save_loader_addr[23:0] == save_size_sys + 24'd2)
-            begin rtc_loaded_timestamp[31:16] <= save_loader_data; rtc_loaded_word_seen[1] <= 1'b1; end
-        if (save_loader_addr[23:0] == save_size_sys + 24'd4)
-            begin rtc_loaded_savedtime[15:0] <= save_loader_data; rtc_loaded_word_seen[2] <= 1'b1; end
-        if (save_loader_addr[23:0] == save_size_sys + 24'd6)
-            begin rtc_loaded_savedtime[31:16] <= save_loader_data; rtc_loaded_word_seen[3] <= 1'b1; end
-        if (save_loader_addr[23:0] == save_size_sys + 24'd8)
-            begin
-                rtc_loaded_savedtime[41:32] <= save_loader_data[9:0];
-                rtc_loaded_time_reserved <= save_loader_data[15:10];
-                rtc_loaded_word_seen[4] <= 1'b1;
-            end
-        if (save_loader_addr[23:0] == save_size_sys + 24'd10)
-            begin rtc_loaded_padding[15:0] <= save_loader_data; rtc_loaded_word_seen[5] <= 1'b1; end
-        if (save_loader_addr[23:0] == save_size_sys + 24'd12)
-            begin rtc_loaded_padding[31:16] <= save_loader_data; rtc_loaded_word_seen[6] <= 1'b1; end
-        if (save_loader_addr[23:0] == save_size_sys + 24'd14)
-            begin rtc_loaded_padding[47:32] <= save_loader_data; rtc_loaded_word_seen[7] <= 1'b1; end
-    end else if (!rtc_data_captured && dataslot_allcomplete_s && save_load_finalized &&
-                 rtc_host_epoch_seen && rtc_host_bcd_seen) begin
-        // No save RTC data — seed from Pocket's real-time clock
-        if (!rtc_loaded_footer_valid) begin
-            rtc_loaded_timestamp <= rtc_host_epoch;
-            if (rtc_bcd_time_valid(rtc_pocket_savedtime))
-                rtc_loaded_savedtime <= rtc_pocket_savedtime;
-            else
-                rtc_loaded_savedtime <= {8'h00, 5'h01, 6'h01, 3'd0, 6'h00, 7'h00, 7'h00};
-        end
-        rtc_data_captured <= 1'b1;
-    end
-end
-
-// Track whether OS has sent RTC epoch time (0x0090 arrives AFTER 0x008F/allcomplete)
-reg rtc_epoch_received;
-always @(posedge clk_sys) begin
-    if (~pll_core_locked)
-        rtc_epoch_received <= 0;
-    else if (rtc_new_s)
-        rtc_epoch_received <= 1;
-end
-
-// Track whether Pocket BCD date/time has arrived (for fallback when no save RTC)
-reg rtc_bcd_received;
-always @(posedge clk_sys) begin
-    if (~pll_core_locked)
-        rtc_bcd_received <= 0;
-    else if (rtc_bcd_new_s)
-        rtc_bcd_received <= 1;
-end
+rtc_persistence rtc_store (
+    .clk                   ( clk_sys ),
+    .reset_n               ( pll_core_locked ),
+    .loader_accept         ( save_loader_accept ),
+    .loader_addr           ( save_loader_addr ),
+    .loader_data           ( save_loader_data ),
+    .save_size             ( save_size_sys ),
+    .finalize_load         ( dataslot_allcomplete_s && save_load_finalized &&
+                             rtc_host_epoch_seen && rtc_host_bcd_seen ),
+    .host_epoch            ( rtc_host_epoch ),
+    .host_savedtime        ( rtc_pocket_savedtime ),
+    .loaded_timestamp      ( rtc_loaded_timestamp ),
+    .loaded_savedtime      ( rtc_loaded_savedtime ),
+    .load_complete         ( rtc_data_captured ),
+    .stored_record_present ( rtc_record_present_sys ),
+    .sidecar_record_valid  ( ),
+    .legacy_record_valid   ( ),
+    .unloader_accept       ( save_unloader_accept ),
+    .unloader_addr         ( save_unloader_addr ),
+    .live_timestamp        ( rtc_timestamp_out ),
+    .live_savedtime        ( rtc_savedtime_out ),
+    .unloader_word         ( rtc_unload_word )
+);
 
 // Assert rtc_save_loaded after boot completes, RTC data captured, AND epoch received.
 // All three are levels (stay high once set), so order of 0x008F vs 0x0090 doesn't matter.
@@ -1546,13 +1436,9 @@ always @(*) begin
 end
 
 
-// ---- Datatable write: communicate save size to Pocket OS ----
-// Continuously write save size to datatable[5] (save slot at data_slots index 2).
-// The Pocket OS reads this value on core exit to determine save writeback size.
-// Must be continuous (not one-shot) because the Pocket may write to the same
-// datatable address via port B during its own bookkeeping, overwriting a one-shot value.
-// Matches the pattern used by the GBC reference core (budude2/openfpga-GBC).
-// All logic in clk_74a domain (same clock as mf_datatable).
+// ---- Datatable writes: communicate cart-save and RTC-sidecar sizes ----
+// Pocket reads these values on exit. Alternate continuously between the two
+// size words so either value is restored if host bookkeeping overwrites it.
 
 // CDC: flash_1m, sram_quirk, gpio_quirk from clk_sys → clk_74a (stable after download)
 wire flash_1m_s;
@@ -1569,6 +1455,13 @@ synch_3 gpio_quirk_sync (
     .clk ( clk_74a )
 );
 
+wire rtc_record_present_s;
+synch_3 rtc_record_present_sync (
+    .i   ( rtc_record_present_sys ),
+    .o   ( rtc_record_present_s ),
+    .clk ( clk_74a )
+);
+
 // Save size for datatable (Pocket-specific: must declare size at boot)
 // MiSTer determines save_sz at runtime from bus activity; we can't do that.
 // Use safe upper bounds based on flash_1m:
@@ -1578,26 +1471,34 @@ synch_3 gpio_quirk_sync (
 // but many (e.g. Dragon Ball Z titles) use EEPROM at 0xD for actual saves.
 // bus_out FSM packs save bytes densely (1 byte per PSRAM byte), so these
 // sizes match the actual save type sizes. No 4× DWORD expansion.
-// Only add 16 bytes for RTC data when the game uses GPIO/RTC or force_rtc is on.
+// Cart save stays canonical; RTC gets an independent 16-byte size entry.
 wire        rtc_active = gpio_quirk_s | force_rtc;
-wire [31:0] save_size_bytes = flash_1m_s ? (32'h0002_0000 + (rtc_active ? 32'd16 : 32'd0)) :
-                                           (32'h0001_0000 + (rtc_active ? 32'd16 : 32'd0));
+wire [31:0] save_size_bytes = flash_1m_s ? 32'h0002_0000 : 32'h0001_0000;
+wire [31:0] rtc_size_bytes = (rtc_active | rtc_record_present_s) ? 32'd16 : 32'd0;
 
-// Continuously drive datatable port A with save size.
+// Continuously alternate datatable port A between both size words.
 // Writing every cycle is intentional: the Pocket OS may write to the same
 // datatable address via port B during bookkeeping, overwriting a one-shot value.
 // Continuous writes ensure the core's value is always current when the OS reads
 // it on core exit for save writeback. This is just a BRAM write port — no cost.
 // Matches the pattern used by the GBC reference core (budude2/openfpga-GBC).
+reg datatable_rtc_select;
 always @(posedge clk_74a) begin
     if (~pll_core_locked_s) begin
         datatable_addr_r <= 10'd0;
         datatable_data_r <= 32'd0;
         datatable_wren_r <= 1'b0;
+        datatable_rtc_select <= 1'b0;
     end else begin
-        datatable_addr_r <= 10'd5;          // save slot index 2: 2*2+1 = 5
-        datatable_data_r <= save_size_bytes;
+        if (datatable_rtc_select) begin
+            datatable_addr_r <= 10'd7;      // RTC slot index 3: 3*2+1 = 7
+            datatable_data_r <= rtc_size_bytes;
+        end else begin
+            datatable_addr_r <= 10'd5;      // Save slot index 2: 2*2+1 = 5
+            datatable_data_r <= save_size_bytes;
+        end
         datatable_wren_r <= 1'b1;
+        datatable_rtc_select <= ~datatable_rtc_select;
     end
 end
 

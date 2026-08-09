@@ -137,6 +137,7 @@ try {
         'src\fpga\apf\mf_datatable.v',
         'src\fpga\build\ap_core.qsf',
         'src\fpga\core\core_top.sv',
+        'src\fpga\core\rtc_persistence.sv',
         'src\fpga\gba\gba_gpioRTCSolarGyro.vhd',
         'src\fpga\gba\gba_memorymux.vhd',
         'src\fpga\gba\gba_rtc_clock.vhd',
