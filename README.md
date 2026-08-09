@@ -35,7 +35,7 @@ loading games that do not need it.
 
 ## Installation
 
-1. Download `K3V.GBA_0.1.0.zip` from the latest release.
+1. Download the latest `K3V.GBA_<version>.zip` release package.
 2. Merge its `Assets/`, `Cores/`, and `Platforms/` folders into the root of the
    Pocket SD card.
 3. Put ROMs and `gba_bios.bin` in `/Assets/gba/common/`.
