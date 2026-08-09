@@ -57,6 +57,8 @@ module tb_rtc_persistence;
         {8'h23, 5'h12, 6'h31, 3'd0, 6'h23, 7'h59, 7'h58};
     localparam [41:0] SIDECAR_TIME =
         {8'h25, 5'h02, 6'h28, 3'd5, 6'h16, 7'h45, 7'h12};
+    localparam [41:0] DEFAULT_TIME =
+        {8'h00, 5'h01, 6'h01, 3'd0, 6'h00, 7'h00, 7'h00};
 
     task automatic tick;
     begin
@@ -111,11 +113,16 @@ module tb_rtc_persistence;
     endtask
 
     task automatic finish_load;
+        integer wait_cycles;
     begin
         finalize_load = 1'b1;
         tick();
         finalize_load = 1'b0;
-        tick();
+        wait_cycles = 0;
+        while (!load_complete && wait_cycles < 10) begin
+            tick();
+            wait_cycles = wait_cycles + 1;
+        end
         if (!load_complete)
             $fatal(1, "RTC persistence did not finalize");
     end
@@ -142,13 +149,16 @@ module tb_rtc_persistence;
         expect_loaded(host_epoch, HOST_TIME, "cart body is not RTC");
         if (stored_record_present)
             $fatal(1, "cart body falsely detected as an RTC record");
+        repeat (3) tick();
+        if (!load_complete)
+            $fatal(1, "RTC persistence completion was not sticky");
 
         // Legacy 64 KiB footer imports unchanged.
         reset_dut();
         write_record(CART_BASE + 28'h001_0000, 32'h6500_0001, LEGACY_TIME);
+        finish_load();
         if (!legacy_record_valid || sidecar_record_valid)
             $fatal(1, "legacy footer validation mismatch");
-        finish_load();
         expect_loaded(32'h6500_0001, LEGACY_TIME, "legacy 64K footer");
         if (!stored_record_present)
             $fatal(1, "valid legacy footer did not request sidecar migration");
@@ -166,9 +176,9 @@ module tb_rtc_persistence;
         reset_dut();
         write_record(CART_BASE + 28'h001_0000, 32'h6500_0010, LEGACY_TIME);
         write_record(RTC_BASE, 32'h6600_0020, SIDECAR_TIME);
+        finish_load();
         if (!legacy_record_valid || !sidecar_record_valid)
             $fatal(1, "dual-source records did not validate");
-        finish_load();
         expect_loaded(32'h6500_0010, LEGACY_TIME, "legacy migration precedence");
 
         // Corrupt sidecar padding falls back to a valid legacy footer and is
@@ -177,9 +187,9 @@ module tb_rtc_persistence;
         write_record(CART_BASE + 28'h001_0000, 32'h6500_0030, LEGACY_TIME);
         write_record(RTC_BASE, 32'h6600_0040, SIDECAR_TIME);
         write_word(RTC_BASE + 28'd10, 16'h0001);
+        finish_load();
         if (sidecar_record_valid || !legacy_record_valid || !stored_record_present)
             $fatal(1, "corrupt-sidecar recovery state mismatch");
-        finish_load();
         expect_loaded(32'h6500_0030, LEGACY_TIME,
                       "corrupt sidecar falls back to legacy");
 
@@ -197,12 +207,61 @@ module tb_rtc_persistence;
         write_record(RTC_BASE, 32'd0, SIDECAR_TIME);
         finish_load();
         expect_loaded(host_epoch, HOST_TIME, "zero sidecar timestamp fallback");
+        if (!stored_record_present)
+            $fatal(1, "complete invalid sidecar was not retained for repair");
+
+        reset_dut();
+        write_record(CART_BASE + 28'h001_0000, 32'd0, LEGACY_TIME);
+        finish_load();
+        expect_loaded(host_epoch, HOST_TIME, "invalid legacy-only fallback");
+        if (stored_record_present)
+            $fatal(1, "invalid legacy-only record requested sidecar migration");
 
         reset_dut();
         write_record(RTC_BASE, 32'h6600_0050,
                      {8'h25, 5'h00, 6'h28, 3'd5, 6'h16, 7'h45, 7'h12});
         finish_load();
         expect_loaded(host_epoch, HOST_TIME, "invalid BCD sidecar fallback");
+
+        // Calendar boundary checks exercise the compact shared validator.
+        reset_dut();
+        write_record(RTC_BASE, 32'h6600_0051,
+                     {8'h24, 5'h02, 6'h29, 3'd4, 6'h23, 7'h59, 7'h59});
+        finish_load();
+        expect_loaded(32'h6600_0051,
+                      {8'h24, 5'h02, 6'h29, 3'd4, 6'h23, 7'h59, 7'h59},
+                      "valid leap day sidecar");
+
+        reset_dut();
+        write_record(RTC_BASE, 32'h6600_0052,
+                     {8'h25, 5'h02, 6'h29, 3'd6, 6'h12, 7'h00, 7'h00});
+        finish_load();
+        expect_loaded(host_epoch, HOST_TIME, "common-year February 29 fallback");
+
+        reset_dut();
+        write_record(RTC_BASE, 32'h6600_0053,
+                     {8'h25, 5'h04, 6'h31, 3'd4, 6'h12, 7'h00, 7'h00});
+        finish_load();
+        expect_loaded(host_epoch, HOST_TIME, "April 31 fallback");
+
+        reset_dut();
+        write_record(RTC_BASE, 32'h6600_0054,
+                     {8'h25, 5'h08, 6'h05, 3'd2, 6'h24, 7'h00, 7'h00});
+        finish_load();
+        expect_loaded(host_epoch, HOST_TIME, "hour 24 fallback");
+
+        reset_dut();
+        host_savedtime = 42'd0;
+        finish_load();
+        expect_loaded(host_epoch, DEFAULT_TIME, "invalid Pocket BCD fallback");
+
+        reset_dut();
+        host_epoch = 32'd0;
+        write_record(RTC_BASE, 32'h6600_0055, SIDECAR_TIME);
+        finish_load();
+        expect_loaded(32'd0, HOST_TIME, "invalid Pocket epoch gates sidecar");
+        if (!sidecar_record_valid)
+            $fatal(1, "valid sidecar was not independently recognized");
 
         reset_dut();
         write_record(CART_BASE + 28'h001_0000, 32'h6500_0060, LEGACY_TIME);

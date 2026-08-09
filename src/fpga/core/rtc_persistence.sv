@@ -43,15 +43,19 @@ module rtc_persistence #(
 
     reg [31:0] sidecar_timestamp;
     reg [41:0] sidecar_savedtime;
-    reg [5:0]  sidecar_reserved;
-    reg [47:0] sidecar_padding;
+    reg        sidecar_format_error;
     reg [7:0]  sidecar_word_seen;
 
     reg [31:0] legacy_timestamp;
     reg [41:0] legacy_savedtime;
-    reg [5:0]  legacy_reserved;
-    reg [47:0] legacy_padding;
+    reg        legacy_format_error;
     reg [7:0]  legacy_word_seen;
+
+    reg        sidecar_record_valid_r;
+    reg        legacy_record_valid_r;
+    reg        validation_result;
+    reg [2:0]  validation_state;
+    reg [41:0] validation_savedtime;
 
     reg [31:0] unload_timestamp_snapshot;
     reg [41:0] unload_savedtime_snapshot;
@@ -64,85 +68,115 @@ module rtc_persistence #(
     wire unloader_is_rtc = unloader_addr[27:24] == RTC_SLOT_REGION;
     wire [23:0] unloader_offset = unloader_addr[23:0];
 
-    function automatic integer days_in_month(input integer year_value,
-                                               input integer month_value);
-    begin
-        case (month_value)
-            1, 3, 5, 7, 8, 10, 12: days_in_month = 31;
-            4, 6, 9, 11:            days_in_month = 30;
-            2: days_in_month = ((year_value % 4) == 0) ? 29 : 28;
-            default: days_in_month = 0;
-        endcase
-    end
-    endfunction
-
     function automatic bcd_time_valid(input [41:0] value);
-        integer year_value;
-        integer month_value;
-        integer day_value;
-        integer wday_value;
-        integer hour_value;
-        integer minute_value;
-        integer second_value;
+        reg [1:0] leap_mod4;
+        reg       leap_year;
+        reg       year_valid;
+        reg       month_valid;
+        reg       month_is_february;
+        reg       month_has_30_days;
+        reg       day_valid;
+        reg       hms_valid;
     begin
-        year_value   = (value[41:38] * 10) + value[37:34];
-        month_value  = (value[33] * 10) + value[32:29];
-        day_value    = (value[28:27] * 10) + value[26:23];
-        wday_value   = value[22:20];
-        hour_value   = (value[19:18] * 10) + value[17:14];
-        minute_value = (value[13:11] * 10) + value[10:7];
-        second_value = (value[6:4] * 10) + value[3:0];
+        // 2000..2099 leap years depend only on the two BCD year digits.
+        // 10*tens + ones modulo four is 2*tens + ones modulo four.
+        leap_mod4 = {value[38], 1'b0} + value[35:34];
+        leap_year = leap_mod4 == 2'b00;
 
-        bcd_time_valid =
-            (value[41:38] <= 9) && (value[37:34] <= 9) &&
-            (value[32:29] <= 9) &&
-            (value[28:27] <= 3) && (value[26:23] <= 9) &&
-            (value[19:18] <= 2) && (value[17:14] <= 9) &&
-            (value[13:11] <= 5) && (value[10:7] <= 9) &&
-            (value[6:4] <= 5) && (value[3:0] <= 9) &&
-            (month_value >= 1) && (month_value <= 12) &&
-            (day_value >= 1) &&
-            (day_value <= days_in_month(year_value, month_value)) &&
-            (wday_value <= 6) && (hour_value <= 23) &&
-            (minute_value <= 59) && (second_value <= 59);
+        year_valid = (value[41:38] <= 4'd9) &&
+                     (value[37:34] <= 4'd9);
+        month_valid = (!value[33] && value[32:29] >= 4'd1 &&
+                       value[32:29] <= 4'd9) ||
+                      (value[33] && value[32:29] <= 4'd2);
+        month_is_february = !value[33] && value[32:29] == 4'd2;
+        month_has_30_days = (!value[33] &&
+                             (value[32:29] == 4'd4 ||
+                              value[32:29] == 4'd6 ||
+                              value[32:29] == 4'd9)) ||
+                            (value[33] && value[32:29] == 4'd1);
+
+        day_valid = (value[26:23] <= 4'd9) &&
+                    (value[28:23] != 6'd0);
+        if (month_is_february)
+            day_valid = day_valid &&
+                        ((value[28:27] < 2'd2) ||
+                         (value[28:27] == 2'd2 &&
+                          value[26:23] <= (leap_year ? 4'd9 : 4'd8)));
+        else if (month_has_30_days)
+            day_valid = day_valid &&
+                        ((value[28:27] < 2'd3) ||
+                         (value[28:27] == 2'd3 && value[26:23] == 4'd0));
+        else
+            day_valid = day_valid &&
+                        ((value[28:27] < 2'd3) ||
+                         (value[28:27] == 2'd3 && value[26:23] <= 4'd1));
+
+        hms_valid = (value[17:14] <= 4'd9) &&
+                    ((value[19:18] < 2'd2) ||
+                     (value[19:18] == 2'd2 && value[17:14] <= 4'd3)) &&
+                    (value[13:11] <= 3'd5) && (value[10:7] <= 4'd9) &&
+                    (value[6:4] <= 3'd5) && (value[3:0] <= 4'd9);
+
+        bcd_time_valid = year_valid && month_valid && day_valid &&
+                         (value[22:20] <= 3'd6) && hms_valid;
     end
     endfunction
 
     wire host_epoch_valid = (host_epoch != 32'd0) &&
                             (host_epoch != 32'hFFFF_FFFF);
 
-    assign sidecar_record_valid =
-        (sidecar_word_seen == 8'hFF) &&
-        (sidecar_reserved == 6'd0) && (sidecar_padding == 48'd0) &&
-        (sidecar_timestamp != 32'd0) &&
-        (sidecar_timestamp != 32'hFFFF_FFFF) &&
-        bcd_time_valid(sidecar_savedtime);
+    localparam [2:0] VALIDATE_IDLE     = 3'd0;
+    localparam [2:0] VALIDATE_LEGACY   = 3'd1;
+    localparam [2:0] VALIDATE_SIDECAR  = 3'd2;
+    localparam [2:0] VALIDATE_HOST     = 3'd3;
+    localparam [2:0] VALIDATE_SELECT   = 3'd4;
+    localparam [2:0] VALIDATE_DONE     = 3'd5;
 
-    assign legacy_record_valid =
-        (legacy_word_seen == 8'hFF) &&
-        (legacy_reserved == 6'd0) && (legacy_padding == 48'd0) &&
-        (legacy_timestamp != 32'd0) &&
-        (legacy_timestamp != 32'hFFFF_FFFF) &&
-        bcd_time_valid(legacy_savedtime);
+    wire sidecar_record_complete = sidecar_word_seen == 8'hFF;
+    wire legacy_record_complete  = legacy_word_seen == 8'hFF;
+    wire sidecar_record_shape_valid = sidecar_record_complete &&
+        !sidecar_format_error && (sidecar_timestamp != 32'd0) &&
+        (sidecar_timestamp != 32'hFFFF_FFFF);
+    wire legacy_record_shape_valid = legacy_record_complete &&
+        !legacy_format_error && (legacy_timestamp != 32'd0) &&
+        (legacy_timestamp != 32'hFFFF_FFFF);
+
+    assign sidecar_record_valid = sidecar_record_valid_r;
+    assign legacy_record_valid  = legacy_record_valid_r;
+
+    // One narrow calendar validator is time-shared across all three sources.
+    // Boot already waits for Pocket's all-complete/RTC events, so these few
+    // additional 100 MHz cycles are unobservable to software.
+    always @(*) begin
+        case (validation_state)
+            VALIDATE_LEGACY:  validation_savedtime = legacy_savedtime;
+            VALIDATE_SIDECAR: validation_savedtime = sidecar_savedtime;
+            default:          validation_savedtime = host_savedtime;
+        endcase
+    end
+    wire validation_bcd_valid = bcd_time_valid(validation_savedtime);
 
     // A complete sidecar is preserved even if its contents are invalid: the
     // Pocket-clock fallback will repair it on the next clean shutdown.
-    assign stored_record_present = (sidecar_word_seen == 8'hFF) ||
+    assign stored_record_present = sidecar_record_complete ||
                                    legacy_record_valid;
 
     always @(posedge clk) begin
         if (!reset_n) begin
             sidecar_timestamp <= 32'd0;
             sidecar_savedtime <= 42'd0;
-            sidecar_reserved  <= 6'd0;
-            sidecar_padding   <= 48'd0;
+            sidecar_format_error <= 1'b0;
             sidecar_word_seen <= 8'd0;
 
             legacy_timestamp <= 32'd0;
             legacy_savedtime <= 42'd0;
-            legacy_reserved  <= 6'd0;
-            legacy_padding   <= 48'd0;
+            legacy_format_error <= 1'b0;
             legacy_word_seen <= 8'd0;
+
+            sidecar_record_valid_r <= 1'b0;
+            legacy_record_valid_r  <= 1'b0;
+            validation_result      <= 1'b0;
+            validation_state       <= VALIDATE_IDLE;
 
             loaded_timestamp <= 32'd0;
             loaded_savedtime <= 42'd0;
@@ -156,12 +190,22 @@ module rtc_persistence #(
                     24'd6:  begin sidecar_savedtime[31:16] <= loader_data; sidecar_word_seen[3] <= 1'b1; end
                     24'd8:  begin
                         sidecar_savedtime[41:32] <= loader_data[9:0];
-                        sidecar_reserved <= loader_data[15:10];
+                        if (loader_data[15:10] != 6'd0)
+                            sidecar_format_error <= 1'b1;
                         sidecar_word_seen[4] <= 1'b1;
                     end
-                    24'd10: begin sidecar_padding[15:0]  <= loader_data; sidecar_word_seen[5] <= 1'b1; end
-                    24'd12: begin sidecar_padding[31:16] <= loader_data; sidecar_word_seen[6] <= 1'b1; end
-                    24'd14: begin sidecar_padding[47:32] <= loader_data; sidecar_word_seen[7] <= 1'b1; end
+                    24'd10: begin
+                        if (loader_data != 16'd0) sidecar_format_error <= 1'b1;
+                        sidecar_word_seen[5] <= 1'b1;
+                    end
+                    24'd12: begin
+                        if (loader_data != 16'd0) sidecar_format_error <= 1'b1;
+                        sidecar_word_seen[6] <= 1'b1;
+                    end
+                    24'd14: begin
+                        if (loader_data != 16'd0) sidecar_format_error <= 1'b1;
+                        sidecar_word_seen[7] <= 1'b1;
+                    end
                     default: ;
                 endcase
             end
@@ -176,34 +220,68 @@ module rtc_persistence #(
                     24'd6:  begin legacy_savedtime[31:16] <= loader_data; legacy_word_seen[3] <= 1'b1; end
                     24'd8:  begin
                         legacy_savedtime[41:32] <= loader_data[9:0];
-                        legacy_reserved <= loader_data[15:10];
+                        if (loader_data[15:10] != 6'd0)
+                            legacy_format_error <= 1'b1;
                         legacy_word_seen[4] <= 1'b1;
                     end
-                    24'd10: begin legacy_padding[15:0]  <= loader_data; legacy_word_seen[5] <= 1'b1; end
-                    24'd12: begin legacy_padding[31:16] <= loader_data; legacy_word_seen[6] <= 1'b1; end
-                    24'd14: begin legacy_padding[47:32] <= loader_data; legacy_word_seen[7] <= 1'b1; end
+                    24'd10: begin
+                        if (loader_data != 16'd0) legacy_format_error <= 1'b1;
+                        legacy_word_seen[5] <= 1'b1;
+                    end
+                    24'd12: begin
+                        if (loader_data != 16'd0) legacy_format_error <= 1'b1;
+                        legacy_word_seen[6] <= 1'b1;
+                    end
+                    24'd14: begin
+                        if (loader_data != 16'd0) legacy_format_error <= 1'b1;
+                        legacy_word_seen[7] <= 1'b1;
+                    end
                     default: ;
                 endcase
             end
 
-            if (!load_complete && finalize_load) begin
-                // A footer can only be produced by an older core. Treat it as
-                // an explicit migration source when both records exist. This
-                // also preserves RTC changes made after temporarily returning
-                // to v0.1.2, even if the host clock moved backwards.
-                if (host_epoch_valid && legacy_record_valid) begin
-                    loaded_timestamp <= legacy_timestamp;
-                    loaded_savedtime <= legacy_savedtime;
-                end else if (host_epoch_valid && sidecar_record_valid) begin
-                    loaded_timestamp <= sidecar_timestamp;
-                    loaded_savedtime <= sidecar_savedtime;
-                end else begin
-                    loaded_timestamp <= host_epoch;
-                    loaded_savedtime <= bcd_time_valid(host_savedtime) ?
-                                        host_savedtime : DEFAULT_SAVEDTIME;
+            case (validation_state)
+                VALIDATE_IDLE: begin
+                    if (finalize_load)
+                        validation_state <= VALIDATE_LEGACY;
                 end
-                load_complete <= 1'b1;
-            end
+                VALIDATE_LEGACY: begin
+                    validation_result <= legacy_record_shape_valid &&
+                                         validation_bcd_valid;
+                    validation_state <= VALIDATE_SIDECAR;
+                end
+                VALIDATE_SIDECAR: begin
+                    legacy_record_valid_r <= validation_result;
+                    validation_result <= sidecar_record_shape_valid &&
+                                         validation_bcd_valid;
+                    validation_state <= VALIDATE_HOST;
+                end
+                VALIDATE_HOST: begin
+                    sidecar_record_valid_r <= validation_result;
+                    validation_result <= validation_bcd_valid;
+                    validation_state <= VALIDATE_SELECT;
+                end
+                VALIDATE_SELECT: begin
+                    // A footer can only be produced by an older core. Treat it
+                    // as an explicit migration source when both records exist.
+                    // This also preserves changes made after returning to
+                    // v0.1.2, even if the host clock moved backwards.
+                    if (host_epoch_valid && legacy_record_valid_r) begin
+                        loaded_timestamp <= legacy_timestamp;
+                        loaded_savedtime <= legacy_savedtime;
+                    end else if (host_epoch_valid && sidecar_record_valid_r) begin
+                        loaded_timestamp <= sidecar_timestamp;
+                        loaded_savedtime <= sidecar_savedtime;
+                    end else begin
+                        loaded_timestamp <= host_epoch;
+                        loaded_savedtime <= validation_result ?
+                                            host_savedtime : DEFAULT_SAVEDTIME;
+                    end
+                    load_complete <= 1'b1;
+                    validation_state <= VALIDATE_DONE;
+                end
+                default: ;
+            endcase
         end
     end
 
