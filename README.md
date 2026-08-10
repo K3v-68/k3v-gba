@@ -24,14 +24,13 @@ adapter, and Single-Pak download are not currently implemented.
 
 ## RTC and save compatibility
 
-RTC games use two independent files with the ROM's name in Pocket's mirrored
-save tree:
+RTC games use two independent files with the ROM's name, stored side by side in
+Pocket's mirrored save tree:
 
 - `/Saves/gba/common/.../<game>.sav` contains only the standard 64 or 128 KiB
   cartridge save.
-- `/Saves/gba/K3V.GBA/.../<game>.rtc` contains K3V's 16-byte powered-off RTC
-  state. It is core-specific so another GBA core cannot overwrite it using an
-  incompatible `.rtc` format.
+- `/Saves/gba/common/.../<game>.rtc` contains K3V's 16-byte powered-off RTC
+  state alongside the cartridge save.
 
 Existing `v0.1.2` saves with an appended 16-byte footer migrate automatically.
 The core accepts the old record and on the next clean exit writes a
