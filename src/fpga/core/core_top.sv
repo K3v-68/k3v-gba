@@ -1307,23 +1307,6 @@ wire            savestate_load_err;
 
 wire            osnotify_inmenu;
 
-reg             target_dataslot_read;
-reg             target_dataslot_write;
-reg             target_dataslot_getfile;
-reg             target_dataslot_openfile;
-
-wire            target_dataslot_ack;
-wire            target_dataslot_done;
-wire    [2:0]   target_dataslot_err;
-
-reg     [15:0]  target_dataslot_id;
-reg     [31:0]  target_dataslot_slotoffset;
-reg     [31:0]  target_dataslot_bridgeaddr;
-reg     [31:0]  target_dataslot_length;
-
-wire    [31:0]  target_buffer_param_struct;
-wire    [31:0]  target_buffer_resp_struct;
-
 wire    [9:0]   datatable_addr;
 wire            datatable_wren;
 wire    [31:0]  datatable_data;
@@ -1394,23 +1377,6 @@ core_bridge_cmd icb (
     .savestate_load_err     ( savestate_load_err ),
 
     .osnotify_inmenu        ( osnotify_inmenu ),
-
-    .target_dataslot_read       ( target_dataslot_read ),
-    .target_dataslot_write      ( target_dataslot_write ),
-    .target_dataslot_getfile    ( target_dataslot_getfile ),
-    .target_dataslot_openfile   ( target_dataslot_openfile ),
-
-    .target_dataslot_ack        ( target_dataslot_ack ),
-    .target_dataslot_done       ( target_dataslot_done ),
-    .target_dataslot_err        ( target_dataslot_err ),
-
-    .target_dataslot_id         ( target_dataslot_id ),
-    .target_dataslot_slotoffset ( target_dataslot_slotoffset ),
-    .target_dataslot_bridgeaddr ( target_dataslot_bridgeaddr ),
-    .target_dataslot_length     ( target_dataslot_length ),
-
-    .target_buffer_param_struct ( target_buffer_param_struct ),
-    .target_buffer_resp_struct  ( target_buffer_resp_struct ),
 
     .datatable_addr         ( datatable_addr ),
     .datatable_wren         ( datatable_wren ),

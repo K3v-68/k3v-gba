@@ -74,24 +74,6 @@ input   wire            savestate_load_busy,
 input   wire            savestate_load_ok,
 input   wire            savestate_load_err,
 
-input   wire            target_dataslot_read,       // rising edge triggered
-input   wire            target_dataslot_write,
-input   wire            target_dataslot_getfile,
-input   wire            target_dataslot_openfile,
-
-output  reg             target_dataslot_ack,        // asserted upon command start until completion
-output  reg             target_dataslot_done,       // asserted upon command finish until next command is issued    
-output  reg     [2:0]   target_dataslot_err,        // contains result of command execution. zero is OK
-
-input   wire    [15:0]  target_dataslot_id,         // parameters for each of the read/reload/write commands
-input   wire    [31:0]  target_dataslot_slotoffset,
-input   wire    [31:0]  target_dataslot_bridgeaddr,
-input   wire    [31:0]  target_dataslot_length,
-
-input   wire    [31:0]  target_buffer_param_struct, // bus address of the memory region APF will fetch additional parameter struct from
-input   wire    [31:0]  target_buffer_resp_struct,  // bus address of the memory region APF will write its response struct to
-                                                    // this should be mapped by the developer, the buffer is not implemented in this file
-
 input   wire    [9:0]   datatable_addr,
 input   wire            datatable_wren,
 input   wire    [31:0]  datatable_data,
@@ -158,32 +140,24 @@ localparam  [3:0]   ST_DONE_ERR     = 'd15;
     
 // target
     
+    // K3V only uses the mandatory Ready-to-Run target command.  The generic
+    // dataslot/getfile/openfile target engine previously instantiated here had
+    // no driven request or parameter inputs in core_top, so retain only the
+    // target status word and the two APF-defined constant data pointers.
     reg     [31:0]  target_0;
-    reg     [31:0]  target_4 = 'h20; // target cmd parameter data at 0x20 
-    reg     [31:0]  target_8 = 'h40; // target cmd response data at 0x40 
-    
-    reg     [31:0]  target_20; // parameter data
-    reg     [31:0]  target_24;
-    reg     [31:0]  target_28;
-    reg     [31:0]  target_2C;
-    
-    reg     [31:0]  target_40; // response data
-    reg     [31:0]  target_44;
-    reg     [31:0]  target_48;
-    reg     [31:0]  target_4C;  
-    
-localparam  [3:0]   TARG_ST_IDLE        = 'd0;
-localparam  [3:0]   TARG_ST_READYTORUN  = 'd1;
-localparam  [3:0]   TARG_ST_DATASLOTOP  = 'd2;
-localparam  [3:0]   TARG_ST_WAITRESULT_RTR  = 'd14;
-localparam  [3:0]   TARG_ST_WAITRESULT_DSO  = 'd15;
-    reg     [3:0]   tstate;
-    
+    localparam [31:0] TARGET_PARAM_PTR = 32'h0000_0020;
+    localparam [31:0] TARGET_RESP_PTR  = 32'h0000_0040;
+
+    localparam [1:0] TARG_ST_IDLE           = 2'd0;
+    localparam [1:0] TARG_ST_READYTORUN     = 2'd1;
+    localparam [1:0] TARG_ST_WAITRESULT_RTR = 2'd2;
+    reg       [1:0] tstate;
+
     reg             status_setup_done_1, status_setup_done_queue;
-    reg             target_dataslot_read_1, target_dataslot_read_queue;
-    reg             target_dataslot_write_1, target_dataslot_write_queue;
-    reg             target_dataslot_getfile_1, target_dataslot_getfile_queue;
-    reg             target_dataslot_openfile_1, target_dataslot_openfile_queue;
+
+    wire    [31:0]  b_datatable_q;
+    reg     [9:0]   b_datatable_addr;
+    reg             b_datatable_wren;
     
     
 initial begin
@@ -198,13 +172,6 @@ initial begin
     osnotify_inmenu <= 0;
     
     status_setup_done_queue <= 0;
-    target_dataslot_read_queue <= 0;
-    target_dataslot_write_queue <= 0;
-    target_dataslot_getfile_queue <= 0;
-    target_dataslot_openfile_queue <= 0;
-    target_dataslot_ack <= 0;
-    target_dataslot_done <= 0;
-    target_dataslot_err <= 0;
 end
     
 always @(posedge clk) begin
@@ -212,25 +179,9 @@ always @(posedge clk) begin
     // detect a rising edge on the input signal
     // and flag a queue that will be cleared later
     status_setup_done_1 <= status_setup_done;
-    target_dataslot_read_1 <= target_dataslot_read;
-    target_dataslot_write_1 <= target_dataslot_write;
-    target_dataslot_getfile_1 <= target_dataslot_getfile;
-    target_dataslot_openfile_1 <= target_dataslot_openfile;
-    
+
     if(status_setup_done & ~status_setup_done_1) begin
         status_setup_done_queue <= 1;
-    end
-    if(target_dataslot_read & ~target_dataslot_read_1) begin
-        target_dataslot_read_queue <= 1;
-    end
-    if(target_dataslot_write & ~target_dataslot_write_1) begin
-        target_dataslot_write_queue <= 1;
-    end
-    if(target_dataslot_getfile & ~target_dataslot_getfile_1) begin
-        target_dataslot_getfile_queue <= 1;
-    end
-    if(target_dataslot_openfile & ~target_dataslot_openfile_1) begin
-        target_dataslot_openfile_queue <= 1;
     end
     
     
@@ -260,12 +211,6 @@ always @(posedge clk) begin
         32'hF8xx10xx: begin
             case(bridge_addr[7:0])
             8'h0: target_0 <= bridge_wr_data_in; // command/status
-            8'h4: target_4 <= bridge_wr_data_in; // parameter data pointer
-            8'h8: target_8 <= bridge_wr_data_in; // response data pointer
-            8'h40: target_40 <= bridge_wr_data_in; // response data regs
-            8'h44: target_44 <= bridge_wr_data_in;
-            8'h48: target_48 <= bridge_wr_data_in;
-            8'h4C: target_4C <= bridge_wr_data_in;
             endcase
         end
         32'hF8xx2xxx: begin
@@ -289,12 +234,8 @@ always @(posedge clk) begin
         32'hF8xx10xx: begin
             case(bridge_addr[7:0])
             8'h0: bridge_rd_data_out <= target_0;
-            8'h4: bridge_rd_data_out <= target_4;
-            8'h8: bridge_rd_data_out <= target_8;
-            8'h20: bridge_rd_data_out <= target_20; // parameter data regs
-            8'h24: bridge_rd_data_out <= target_24;
-            8'h28: bridge_rd_data_out <= target_28;
-            8'h2C: bridge_rd_data_out <= target_2C;
+            8'h4: bridge_rd_data_out <= TARGET_PARAM_PTR;
+            8'h8: bridge_rd_data_out <= TARGET_RESP_PTR;
             endcase
         end
         32'hF8xx2xxx: begin
@@ -475,77 +416,14 @@ always @(posedge clk) begin
     // target > host command executer
     case(tstate)
     TARG_ST_IDLE: begin
-    
-        target_dataslot_ack <= 0;
-    
         if(status_setup_done_queue) begin
             status_setup_done_queue <= 0;
             tstate <= TARG_ST_READYTORUN;
-            
-        end else if(target_dataslot_read_queue) begin
-            target_dataslot_read_queue <= 0;
-            target_0[15:0] <= 16'h0180;
-            
-            target_20 <= target_dataslot_id;
-            target_24 <= target_dataslot_slotoffset;
-            target_28 <= target_dataslot_bridgeaddr;
-            target_2C <= target_dataslot_length;
-            
-            tstate <= TARG_ST_DATASLOTOP;
-            
-        end else if(target_dataslot_write_queue) begin
-            target_dataslot_write_queue <= 0;
-            target_0[15:0] <= 16'h0184;
-            
-            target_20 <= target_dataslot_id;
-            target_24 <= target_dataslot_slotoffset;
-            target_28 <= target_dataslot_bridgeaddr;
-            target_2C <= target_dataslot_length;
-            
-            tstate <= TARG_ST_DATASLOTOP;
-            
-        end else if(target_dataslot_getfile_queue) begin
-            target_dataslot_getfile_queue <= 0;
-            target_0[15:0] <= 16'h0190;
-            
-            target_20 <= target_dataslot_id;
-            target_24 <= target_buffer_resp_struct; // pointer to the bram that will hold the response struct
-                                                    // which will contain the requested filename before command completion
-            tstate <= TARG_ST_DATASLOTOP;
-            
-        end else if(target_dataslot_openfile_queue) begin
-            target_dataslot_openfile_queue <= 0;
-            target_0[15:0] <= 16'h0192;
-            
-            target_20 <= target_dataslot_id;
-            target_24 <= target_buffer_param_struct; // pointer to the bram that will hold the parameter struct
-                                                    // which must contain the desired filename and flag/size before command execution
-            tstate <= TARG_ST_DATASLOTOP;
-        end 
+        end
     end
     TARG_ST_READYTORUN: begin
         target_0 <= 32'h636D_0140;
         tstate <= TARG_ST_WAITRESULT_RTR;
-    end
-    TARG_ST_DATASLOTOP: begin
-        target_0[31:16] <= 16'h636D;
-        
-        target_dataslot_done <= 0;
-        target_dataslot_err <= 0;
-        tstate <= TARG_ST_WAITRESULT_DSO;
-    end
-    TARG_ST_WAITRESULT_DSO: begin
-        if(target_0[31:16] == 16'h6275) begin
-            target_dataslot_ack <= 1;
-        end
-        if(target_0[31:16] == 16'h6F6B) begin
-            // done
-            // save result code
-            target_dataslot_err <= target_0[2:0];
-            // assert done
-            target_dataslot_done <= 1;
-            tstate <= TARG_ST_IDLE;
-        end
     end
     TARG_ST_WAITRESULT_RTR: begin
         if(target_0[31:16] == 16'h6F6B) begin
@@ -558,10 +436,6 @@ always @(posedge clk) begin
     
 
 end
-
-    wire    [31:0]  b_datatable_q;
-    reg     [9:0]   b_datatable_addr;
-    reg             b_datatable_wren;
 
 mf_datatable idt (
     .address_a      ( datatable_addr ),
