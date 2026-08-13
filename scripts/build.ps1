@@ -274,6 +274,26 @@ try {
         }
     }
 
+    Write-Host '=== Enforcing FPGA resource budget ==='
+    try {
+        Invoke-Python -Command $PythonCommand -Arguments @(
+            (Join-Path $ProjectDirectory 'scripts\check_quartus_resources.py'),
+            '--summary',
+            (Join-Path $ProjectDirectory 'src\fpga\build\output_files\ap_core.fit.summary'),
+            '--qsf',
+            (Join-Path $ProjectDirectory 'src\fpga\build\ap_core.qsf'),
+            '--json-out',
+            (Join-Path $BuildOutput 'resource-usage.json'),
+            '--markdown-out',
+            (Join-Path $BuildOutput 'resource-usage.md')
+        )
+    }
+    catch {
+        Remove-Item -LiteralPath $RawBitstream -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $PocketBitstream -Force -ErrorAction SilentlyContinue
+        throw
+    }
+
     Write-Host '=== Quartus STA summary ==='
     Get-Content -LiteralPath $StaSummary
     $NegativeSlack = Select-String -LiteralPath $StaSummary -Pattern '^\s*Slack\s*:\s*-'

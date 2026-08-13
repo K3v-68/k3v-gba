@@ -15,7 +15,7 @@ from pathlib import Path
 
 
 CORE_DIRECTORY = "K3V.GBA"
-CORE_URL = "https://github.com/KevinGaudry/k3v-gba"
+CORE_URL = "https://github.com/K3v-68/k3v-gba"
 SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 ICON_BYTES = 36 * 36 * 2
 PLATFORM_IMAGE_BYTES = 521 * 165 * 2

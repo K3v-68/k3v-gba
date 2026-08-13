@@ -2,8 +2,8 @@
 
 ![K3V GBA emblem](artwork/k3v-gba-emblem-master.png)
 
-[![Latest Release](https://img.shields.io/github/v/tag/KevinGaudry/k3v-gba?label=latest)](https://github.com/KevinGaudry/k3v-gba/releases/latest)
-[![Build](https://github.com/KevinGaudry/k3v-gba/actions/workflows/build-branch.yml/badge.svg)](https://github.com/KevinGaudry/k3v-gba/actions/workflows/build-branch.yml)
+[![Latest Release](https://img.shields.io/github/v/tag/K3v-68/k3v-gba?label=latest)](https://github.com/K3v-68/k3v-gba/releases/latest)
+[![Build](https://github.com/K3v-68/k3v-gba/actions/workflows/build-branch.yml/badge.svg)](https://github.com/K3v-68/k3v-gba/actions/workflows/build-branch.yml)
 [![Platform](https://img.shields.io/badge/platform-Analogue%20Pocket-blue)](https://openfpga-library.github.io/analogue-pocket/)
 
 K3V GBA is an open-source Game Boy Advance FPGA core for Analogue Pocket. The
@@ -101,7 +101,11 @@ loading/unloading across asynchronous clock domains, PSRAM handshakes, invalid
 save rejection, and stalled memory responses. Release builds additionally
 require a clean Quartus compile,
 fresh output files, complete custom TimeQuest reports, no critical warnings, and
-non-negative timing slack. See [AUDIT_REPORT.md](AUDIT_REPORT.md).
+non-negative timing slack. Every compile also checks the exact raw resource
+counts against the v0.1.4 baseline: 17,655 ALMs and 278 M10K RAM blocks. The
+v0.2.0 development target is at most 17,000 ALMs; CI publishes a machine-readable
+JSON result and a Markdown summary for every build. See
+[AUDIT_REPORT.md](AUDIT_REPORT.md).
 
 ## Building from source
 

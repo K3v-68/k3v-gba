@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "reference": "K3V v0.1.4 release build 31662908925",
+  "reference_commit": "7a9dfdfdbf864bc198d073f5b44698885007b3ae",
+  "release_commit": "2892d34bb3db94c4a4ae493f48e2180e10f0983a",
+  "device": "5CEBA4F23C8",
+  "quartus": "21.1.1 Build 850",
+  "seed": 9,
+  "device_totals": {
+    "alms": 18480,
+    "m10ks": 308
+  },
+  "baseline": {
+    "alms": 17655,
+    "m10ks": 278
+  },
+  "limits": {
+    "alms": 17655,
+    "m10ks": 278
+  },
+  "targets": {
+    "alms": 17000
+  }
+}
