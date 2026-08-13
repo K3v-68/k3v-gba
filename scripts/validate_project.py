@@ -111,8 +111,8 @@ def validate_data_slots(root: Path) -> None:
             )
     if (rtc_parameters & 0x4) == 0:
         raise ValueError("RTC sidecar filename must be cloned from ROM slot 0")
-    if (rtc_parameters & 0x2) == 0:
-        raise ValueError("RTC sidecar must be isolated in K3V's core-specific path")
+    if (rtc_parameters & 0x2) != 0:
+        raise ValueError("RTC sidecar must share the .sav platform-common path")
     if rtc_slot.get("extensions", [None])[0] != "rtc":
         raise ValueError("RTC sidecar's first extension must be rtc")
     print("Validated separate per-ROM RTC sidecar data slot")
@@ -175,10 +175,11 @@ def tracked_paths(root: Path) -> list[Path]:
 
 
 def validate_public_identity(root: Path) -> None:
-    # Import provenance is legally retained in NOTICE and the release sidecar
-    # generator. It must not appear in public K3V branding or package metadata.
+    # Import provenance is retained in NOTICE, README's lineage section, and the
+    # release sidecar generator. It must not appear in K3V package metadata.
     allow = {
         root / "NOTICE",
+        root / "README.md",
         root / "scripts/package_release.py",
     }
     textual_suffixes = {

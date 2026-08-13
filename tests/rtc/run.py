@@ -200,8 +200,8 @@ def run_reference_checks(project_root: Path) -> None:
         raise AssertionError("RTC sidecar must be optional and nonvolatile")
     if (int(rtc_slot.get("parameters", "0"), 0) & 0x4) == 0:
         raise AssertionError("RTC filename must be cloned from the ROM slot")
-    if (int(rtc_slot.get("parameters", "0"), 0) & 0x2) == 0:
-        raise AssertionError("RTC sidecar must use K3V's core-specific save path")
+    if (int(rtc_slot.get("parameters", "0"), 0) & 0x2) != 0:
+        raise AssertionError("RTC sidecar must share the .sav platform-common path")
     if rtc_slot.get("extensions", [None])[0] != "rtc":
         raise AssertionError("RTC sidecar must use the .rtc extension")
     if rtc_slot.get("size_exact") != 16:

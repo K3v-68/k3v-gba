@@ -45,13 +45,20 @@ adapter, and Single-Pak download are not currently implemented.
 
 ## RTC and save compatibility
 
-RTC games use two independent files with the ROM's name, stored side by side in
-Pocket's mirrored save tree:
+RTC games use two independent files derived from the ROM's name, stored side by
+side in the same platform-common folder in Pocket's mirrored save tree:
 
 - `/Saves/gba/common/.../<game>.sav` contains only the standard 64 or 128 KiB
-  cartridge save.
-- `/Saves/gba/common/.../<game>.rtc` contains K3V's 16-byte powered-off RTC
-  state alongside the cartridge save.
+  cartridge save shared at the GBA-platform level.
+- `/Saves/gba/common/.../<game>.rtc` contains K3V's separate 16-byte
+  powered-off RTC state.
+
+The main reason for keeping RTC state in a separate sidecar is save
+interoperability: no K3V-specific footer changes the size or contents of the
+standard cartridge `.sav`. With the same ROM path and filename, that `.sav`
+can therefore be used directly by other Pocket GBA cores that use the common
+platform save, including Spiritualized GBA. Those cores ignore K3V's `.rtc`
+sidecar, so RTC state itself is not transferred between cores.
 
 Existing `v0.1.2` saves with an appended 16-byte footer migrate automatically.
 The core accepts the old record and on the next clean exit writes a
