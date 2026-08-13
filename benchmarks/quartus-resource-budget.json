@@ -15,8 +15,8 @@
     "m10ks": 278
   },
   "limits": {
-    "alms": 16537,
-    "m10ks": 283
+    "alms": 16500,
+    "m10ks": 284
   },
   "targets": {
     "alms": 16500
@@ -31,6 +31,11 @@
       "maximum_added_m10ks": 1,
       "requires_alm_reduction": true,
       "reason": "Store the boot-only RTC persistence records in one M10K instead of registers, while retaining 25 free M10Ks."
+    },
+    "boot_metadata_rom": {
+      "maximum_added_m10ks": 1,
+      "requires_alm_reduction": true,
+      "reason": "Measure a sequential cartridge-quirk ROM, accepting it only if the whole design reaches the 16,500-ALM stretch target with 24 M10Ks left free."
     }
   }
 }
