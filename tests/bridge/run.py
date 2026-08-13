@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile and run the Pocket PMP bridge pipeline regression."""
+"""Compile and run the Pocket bridge regressions."""
 
 from __future__ import annotations
 
@@ -39,21 +39,36 @@ def main() -> int:
     )
 
     build_dir = Path(tempfile.mkdtemp(prefix="k3v-gba-bridge-test-"))
-    output = build_dir / "bridge_pipeline.vvp"
-    sources = [
-        REPO_ROOT / "src" / "fpga" / "apf" / "common.v",
-        REPO_ROOT / "src" / "fpga" / "apf" / "io_bridge_peripheral.v",
-        TEST_DIR / "tb_io_bridge_pipeline.sv",
+    tests = [
+        (
+            "tb_io_bridge_pipeline",
+            [
+                REPO_ROOT / "src" / "fpga" / "apf" / "common.v",
+                REPO_ROOT / "src" / "fpga" / "apf" / "io_bridge_peripheral.v",
+                TEST_DIR / "tb_io_bridge_pipeline.sv",
+            ],
+        ),
+        (
+            "tb_core_bridge_cmd",
+            [
+                REPO_ROOT / "src" / "fpga" / "apf" / "common.v",
+                TEST_DIR / "mf_datatable_model.sv",
+                REPO_ROOT / "src" / "fpga" / "core" / "core_bridge_cmd.v",
+                TEST_DIR / "tb_core_bridge_cmd.sv",
+            ],
+        ),
     ]
 
     try:
-        subprocess.run(
-            [compiler, "-g2012", "-Wall", "-s", "tb_io_bridge_pipeline",
-             "-o", str(output), *(str(path) for path in sources)],
-            cwd=REPO_ROOT,
-            check=True,
-        )
-        subprocess.run([runtime, str(output)], cwd=REPO_ROOT, check=True)
+        for top, sources in tests:
+            output = build_dir / f"{top}.vvp"
+            subprocess.run(
+                [compiler, "-g2012", "-Wall", "-s", top,
+                 "-o", str(output), *(str(path) for path in sources)],
+                cwd=REPO_ROOT,
+                check=True,
+            )
+            subprocess.run([runtime, str(output)], cwd=REPO_ROOT, check=True)
     finally:
         shutil.rmtree(build_dir, ignore_errors=True)
 
@@ -64,5 +79,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except subprocess.CalledProcessError as error:
-        print(f"bridge pipeline test failure: {error}", file=sys.stderr)
+        print(f"bridge test failure: {error}", file=sys.stderr)
         raise SystemExit(1)
