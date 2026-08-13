@@ -87,7 +87,7 @@ module data_unloader #(
       fifo_address_req.lpm_showahead = "OFF", fifo_address_req.lpm_type = "dcfifo",
       fifo_address_req.lpm_width = 28, fifo_address_req.lpm_widthu = 2,
       fifo_address_req.overflow_checking = "OFF", fifo_address_req.rdsync_delaypipe = 5,
-      fifo_address_req.underflow_checking = "OFF", fifo_address_req.use_eab = "OFF",
+      fifo_address_req.underflow_checking = "OFF", fifo_address_req.use_eab = "ON",
       fifo_address_req.wrsync_delaypipe = 5;
 
   // Memory output to APF FIFO
@@ -119,7 +119,7 @@ module data_unloader #(
       fifo_data_response.lpm_showahead = "OFF", fifo_data_response.lpm_type = "dcfifo",
       fifo_data_response.lpm_width = WORD_SIZE, fifo_data_response.lpm_widthu = 2,
       fifo_data_response.overflow_checking = "OFF", fifo_data_response.rdsync_delaypipe = 5,
-      fifo_data_response.underflow_checking = "OFF", fifo_data_response.use_eab = "OFF",
+      fifo_data_response.underflow_checking = "OFF", fifo_data_response.use_eab = "ON",
       fifo_data_response.wrsync_delaypipe = 5;
 
   /// APF side

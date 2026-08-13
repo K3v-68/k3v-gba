@@ -57,8 +57,14 @@ def budget_data() -> dict:
         "seed": 9,
         "device_totals": {"alms": 18_480, "m10ks": 308},
         "baseline": {"alms": 17_655, "m10ks": 278},
-        "limits": {"alms": 17_655, "m10ks": 278},
+        "limits": {"alms": 17_655, "m10ks": 286},
         "targets": {"alms": 17_000},
+        "tradeoffs": {
+            "embedded_cdc_fifos": {
+                "maximum_added_m10ks": 8,
+                "reason": "Test fixture for the checked-in ALM-to-M10K trade.",
+            }
+        },
     }
 
 
@@ -118,11 +124,11 @@ def main() -> int:
         )
 
         ram_regression = copy.deepcopy(build)
-        ram_regression["usage"]["m10ks"]["used"] = 279
+        ram_regression["usage"]["m10ks"]["used"] = 287
         ram_result = checker.build_result(ram_regression, qsf_data, budget)
         assert not ram_result["passed"]
         assert any(
-            "m10ks regressed to 279" in error for error in ram_result["errors"]
+            "m10ks regressed to 287" in error for error in ram_result["errors"]
         )
 
         wrong_device = copy.deepcopy(build)

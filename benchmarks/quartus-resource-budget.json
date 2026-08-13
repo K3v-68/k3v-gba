@@ -16,9 +16,15 @@
   },
   "limits": {
     "alms": 17655,
-    "m10ks": 278
+    "m10ks": 286
   },
   "targets": {
     "alms": 17000
+  },
+  "tradeoffs": {
+    "embedded_cdc_fifos": {
+      "maximum_added_m10ks": 8,
+      "reason": "Move five tiny transfer CDC FIFOs out of ALMs while retaining 22 free M10Ks."
+    }
   }
 }
