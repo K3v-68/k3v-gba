@@ -1002,11 +1002,14 @@ wire        quirk_sram;
 wire        quirk_gpio;       // → specialmodule
 wire        quirk_memory_remap; // → memory_remap
 wire        quirk_sprite;     // → maxpixels
+wire        quirks_ready;
 
 cart_quirks quirks (
     .clk           ( clk_sys ),
+    .reset         ( ~pll_core_locked ),
     .cart_id       ( detected_cart_id ),
     .valid         ( det_cart_id_valid ),
+    .quirks_ready  ( quirks_ready ),
     .sram_quirk    ( quirk_sram ),
     .gpio_quirk    ( quirk_gpio ),
     .tilt_quirk    (),
@@ -1139,7 +1142,8 @@ synch_3 s_allcomplete(dataslot_allcomplete, dataslot_allcomplete_s, clk_sys);
 
 // ---- GBA Reset ----
 // Core stays in reset until PLL locks AND all data slots finish loading.
-// Save detection and quirk lookup complete during download (before allcomplete).
+// Save detection completes during download. The sequential quirk-table scan
+// starts once the cart ID is valid and explicitly gates release below.
 // reset_n is in clk_74a domain — synchronize to clk_sys before use.
 wire reset_n_s;
 synch_3 s_reset_n(reset_n, reset_n_s, clk_sys);
@@ -1154,7 +1158,7 @@ wire rtc_required_sys = quirk_gpio | force_rtc_s;
 // RTC games remain reset until offline catch-up has committed its shadow
 // calendar atomically. Non-RTC games do not depend on host RTC delivery.
 wire reset_gba = ~pll_core_locked | ~dataslot_allcomplete_s | ~reset_n_s |
-                 core_reset_s | ~save_mem_ready |
+                 core_reset_s | ~save_mem_ready | ~quirks_ready |
                  (rtc_required_sys & ~rtc_init_done);
 
 // ---- BIOS Loading via shared APF ingress → gba_top internal BRAM ----

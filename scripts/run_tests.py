@@ -64,6 +64,17 @@ def main() -> int:
         root,
         [
             python,
+            "tests/metadata/run.py",
+            "--iverilog",
+            iverilog,
+            "--vvp",
+            vvp,
+        ],
+    )
+    run(
+        root,
+        [
+            python,
             "tests/rtc/run.py",
             "--require-ghdl",
             "--ghdl",
