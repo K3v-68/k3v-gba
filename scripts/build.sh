@@ -7,9 +7,16 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 RBF="$PROJECT_DIR/src/fpga/build/output_files/ap_core.rbf"
 RBF_R="$PROJECT_DIR/pkg/Cores/K3V.GBA/bitstream.rbf_r"
 BUILD_LOG="$PROJECT_DIR/build_output/quartus-build.log"
+RESOURCE_JSON="$PROJECT_DIR/build_output/resource-usage.json"
+RESOURCE_MARKDOWN="$PROJECT_DIR/build_output/resource-usage.md"
 QUARTUS_IMAGE="${QUARTUS_IMAGE:-raetro/quartus@sha256:817a783727492269d33aa98c903e8efc216e95d785ee76bfc8f426eddee98d0b}"
 BUILD_BACKEND="${BUILD_BACKEND:-docker}"
 QUARTUS_SH="${QUARTUS_SH:-quartus_sh}"
+
+mkdir -p "$PROJECT_DIR/build_output"
+
+# Do not allow an aborted build to leave a stale image or resource report current.
+rm -f -- "$RBF" "$RBF_R" "$RESOURCE_JSON" "$RESOURCE_MARKDOWN"
 
 if [[ -n "${PYTHON:-}" ]]; then
   PYTHON_CMD="$PYTHON"
@@ -21,11 +28,6 @@ else
   echo "Python 3 is required to reverse and package the bitstream." >&2
   exit 1
 fi
-
-mkdir -p "$PROJECT_DIR/build_output"
-
-# Do not allow a failed compile to leave a stale image looking current.
-rm -f -- "$RBF" "$RBF_R"
 
 echo "=== Starting Quartus build ($BUILD_BACKEND) ==="
 case "$BUILD_BACKEND" in

@@ -243,6 +243,8 @@ def default_evidence(project_root: Path) -> list[Path]:
         project_root / "src/fpga/build/output_files/ap_core.sta.summary",
         project_root / "src/fpga/build/output_files/ap_core.flow.rpt",
         project_root / "build_output/quartus-build.log",
+        project_root / "benchmarks/quartus-resource-budget.json",
+        project_root / "build_output/resource-usage.json",
         project_root / "build_output/prebuild-freshness.txt",
         project_root / "build_output/postbuild-freshness.txt",
         project_root / "test_results.txt",
@@ -261,6 +263,8 @@ def default_evidence(project_root: Path) -> list[Path]:
 def require_complete_evidence(project_root: Path) -> None:
     required = [
         project_root / "build_output/quartus-build.log",
+        project_root / "benchmarks/quartus-resource-budget.json",
+        project_root / "build_output/resource-usage.json",
         project_root / "build_output/prebuild-freshness.txt",
         project_root / "build_output/postbuild-freshness.txt",
         project_root / "test_results.txt",

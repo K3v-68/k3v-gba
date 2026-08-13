@@ -57,10 +57,13 @@ def parse_fit_summary(path: Path) -> dict:
         raise ValueError(f"Quartus fitter was not successful: {fitter_status}")
     usage = {}
     for key in ("alms", "m10ks", "block_memory_bits", "dsp_blocks"):
-        usage[key] = {
-            "used": parse_number(matches[key].group(1)),
-            "total": parse_number(matches[key].group(2)),
-        }
+        used = parse_number(matches[key].group(1))
+        total = parse_number(matches[key].group(2))
+        if total <= 0:
+            raise ValueError(f"{key} device total must be positive, found {total}")
+        if used > total:
+            raise ValueError(f"{key} usage {used} exceeds device total {total}")
+        usage[key] = {"used": used, "total": total}
     return {
         "fitter_status": fitter_status,
         "quartus": matches["quartus"].group(1),
@@ -81,14 +84,120 @@ def parse_qsf(path: Path) -> dict:
 
 def load_budget(path: Path) -> dict:
     budget = json.loads(path.read_text(encoding="utf-8"))
-    if budget.get("schema") != 1:
+    if not isinstance(budget, dict):
+        raise ValueError(f"{path}: resource budget must be a JSON object")
+    top_level_keys = {
+        "schema",
+        "reference",
+        "reference_commit",
+        "release_commit",
+        "device",
+        "quartus",
+        "seed",
+        "device_totals",
+        "baseline",
+        "limits",
+        "targets",
+        "tradeoffs",
+    }
+    if set(budget) != top_level_keys:
+        raise ValueError(
+            f"{path}: top-level keys must be {sorted(top_level_keys)}, "
+            f"found {sorted(budget)}"
+        )
+    if type(budget.get("schema")) is not int or budget["schema"] != 1:
         raise ValueError(f"{path}: unsupported resource budget schema")
-    for key in ("reference", "reference_commit", "device", "quartus", "seed"):
-        if key not in budget:
-            raise ValueError(f"{path}: missing {key}")
+
+    for key in (
+        "reference",
+        "reference_commit",
+        "release_commit",
+        "device",
+        "quartus",
+    ):
+        if not isinstance(budget.get(key), str) or not budget[key].strip():
+            raise ValueError(f"{path}: {key} must be a non-empty string")
+    if type(budget.get("seed")) is not int or budget["seed"] < 0:
+        raise ValueError(f"{path}: seed must be a non-negative integer")
+
     for section in ("device_totals", "baseline", "limits", "targets"):
         if not isinstance(budget.get(section), dict):
             raise ValueError(f"{path}: missing {section} object")
+
+    expected_keys = {
+        "device_totals": {"alms", "m10ks"},
+        "baseline": {"alms", "m10ks"},
+        "limits": {"alms", "m10ks"},
+        "targets": {"alms"},
+    }
+    for section, keys in expected_keys.items():
+        actual_keys = set(budget[section])
+        if actual_keys != keys:
+            raise ValueError(
+                f"{path}: {section} keys must be {sorted(keys)}, "
+                f"found {sorted(actual_keys)}"
+            )
+        for key in keys:
+            value = budget[section][key]
+            if type(value) is not int or value < 0:
+                raise ValueError(
+                    f"{path}: {section}.{key} must be a non-negative integer"
+                )
+
+    for key in ("alms", "m10ks"):
+        total = budget["device_totals"][key]
+        if total <= 0:
+            raise ValueError(f"{path}: device_totals.{key} must be positive")
+        for section in ("baseline", "limits"):
+            if budget[section][key] > total:
+                raise ValueError(
+                    f"{path}: {section}.{key} exceeds device_totals.{key}"
+                )
+    if budget["limits"]["alms"] > budget["baseline"]["alms"]:
+        raise ValueError(f"{path}: limits.alms may not exceed baseline.alms")
+    if budget["targets"]["alms"] > budget["limits"]["alms"]:
+        raise ValueError(f"{path}: targets.alms may not exceed limits.alms")
+
+    tradeoffs = budget.get("tradeoffs")
+    if not isinstance(tradeoffs, dict):
+        raise ValueError(f"{path}: missing tradeoffs object")
+    maximum_added_m10ks = 0
+    for name, tradeoff in tradeoffs.items():
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"{path}: tradeoff names must be non-empty strings")
+        if not isinstance(tradeoff, dict):
+            raise ValueError(f"{path}: tradeoffs.{name} must be an object")
+        keys = {"maximum_added_m10ks", "requires_alm_reduction", "reason"}
+        if set(tradeoff) != keys:
+            raise ValueError(
+                f"{path}: tradeoffs.{name} keys must be {sorted(keys)}, "
+                f"found {sorted(tradeoff)}"
+            )
+        added = tradeoff["maximum_added_m10ks"]
+        if type(added) is not int or added < 0:
+            raise ValueError(
+                f"{path}: tradeoffs.{name}.maximum_added_m10ks must be "
+                "a non-negative integer"
+            )
+        if type(tradeoff["requires_alm_reduction"]) is not bool:
+            raise ValueError(
+                f"{path}: tradeoffs.{name}.requires_alm_reduction must be a boolean"
+            )
+        if not isinstance(tradeoff["reason"], str) or not tradeoff["reason"].strip():
+            raise ValueError(
+                f"{path}: tradeoffs.{name}.reason must be a non-empty string"
+            )
+        maximum_added_m10ks += added
+
+    allowed_m10ks = budget["baseline"]["m10ks"] + maximum_added_m10ks
+    if allowed_m10ks > budget["device_totals"]["m10ks"]:
+        raise ValueError(
+            f"{path}: declared M10K tradeoffs exceed the device capacity"
+        )
+    if budget["limits"]["m10ks"] != allowed_m10ks:
+        raise ValueError(
+            f"{path}: limits.m10ks must equal the baseline plus declared tradeoffs"
+        )
     return budget
 
 
@@ -100,7 +209,11 @@ def evaluate(build: dict, qsf: dict, budget: dict) -> list[str]:
         )
     if qsf["device"] != budget["device"]:
         errors.append(f"QSF device is {qsf['device']}, expected {budget['device']}")
-    if not build["quartus"].startswith(budget["quartus"]):
+    expected_quartus = budget["quartus"]
+    if not (
+        build["quartus"] == expected_quartus
+        or build["quartus"].startswith(expected_quartus + " ")
+    ):
         errors.append(
             f"Quartus version is {build['quartus']!r}, expected {budget['quartus']!r}"
         )
@@ -119,6 +232,21 @@ def evaluate(build: dict, qsf: dict, budget: dict) -> list[str]:
         maximum = int(budget["limits"][key])
         if used > maximum:
             errors.append(f"{key} regressed to {used}; budget allows at most {maximum}")
+
+    added_m10ks = max(0, usage["m10ks"]["used"] - budget["baseline"]["m10ks"])
+    free_added_m10ks = sum(
+        tradeoff["maximum_added_m10ks"]
+        for tradeoff in budget["tradeoffs"].values()
+        if not tradeoff["requires_alm_reduction"]
+    )
+    if (
+        added_m10ks > free_added_m10ks
+        and usage["alms"]["used"] >= budget["baseline"]["alms"]
+    ):
+        errors.append(
+            "the declared M10K tradeoff requires ALM usage below the baseline "
+            f"of {budget['baseline']['alms']}"
+        )
     return errors
 
 
@@ -128,6 +256,7 @@ def build_result(build: dict, qsf: dict, budget: dict) -> dict:
         "schema": 1,
         "reference": budget["reference"],
         "reference_commit": budget["reference_commit"],
+        "release_commit": budget["release_commit"],
         "environment": {
             "device": build["device"],
             "quartus": build["quartus"],
@@ -200,6 +329,40 @@ def append_text(path: Path, value: str) -> None:
         output.write(value)
 
 
+def failure_result(error: Exception) -> dict:
+    return {
+        "schema": 1,
+        "passed": False,
+        "status": "invalid",
+        "errors": [f"resource check failure: {error}"],
+    }
+
+
+def failure_markdown(result: dict) -> str:
+    lines = [
+        "## FPGA resource budget",
+        "",
+        "Resource check could not be completed.",
+        "",
+        "### Validation failures",
+        "",
+    ]
+    lines.extend(f"- {error}" for error in result["errors"])
+    return "\n".join(lines) + "\n"
+
+
+def write_outputs(args: argparse.Namespace, result: dict, report: str) -> None:
+    json_text = json.dumps(result, indent=2, sort_keys=True) + "\n"
+    if args.json_out:
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        args.json_out.write_text(json_text, encoding="utf-8", newline="\n")
+    if args.markdown_out:
+        args.markdown_out.parent.mkdir(parents=True, exist_ok=True)
+        args.markdown_out.write_text(report, encoding="utf-8", newline="\n")
+    if args.github_summary:
+        append_text(args.github_summary, report)
+
+
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
     parser = argparse.ArgumentParser(description=__doc__)
@@ -221,18 +384,20 @@ def main() -> int:
         result = build_result(build, qsf, load_budget(args.budget))
         report = markdown(result)
         print(report, end="")
-        json_text = json.dumps(result, indent=2, sort_keys=True) + "\n"
-        if args.json_out:
-            args.json_out.parent.mkdir(parents=True, exist_ok=True)
-            args.json_out.write_text(json_text, encoding="utf-8", newline="\n")
-        if args.markdown_out:
-            args.markdown_out.parent.mkdir(parents=True, exist_ok=True)
-            args.markdown_out.write_text(report, encoding="utf-8", newline="\n")
-        if args.github_summary:
-            append_text(args.github_summary, report)
+        write_outputs(args, result, report)
         return 0 if result["passed"] else 1
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+    except (OSError, ValueError, TypeError, KeyError, ZeroDivisionError) as error:
+        result = failure_result(error)
+        report = failure_markdown(result)
+        print(report, end="")
         print(f"resource check failure: {error}", file=sys.stderr)
+        try:
+            write_outputs(args, result, report)
+        except OSError as output_error:
+            print(
+                f"resource check could not write failure evidence: {output_error}",
+                file=sys.stderr,
+            )
         return 2
 
 
