@@ -53,6 +53,10 @@ side in the same platform-common folder in Pocket's mirrored save tree:
 - `/Saves/gba/common/.../<game>.rtc` contains K3V's separate 16-byte
   powered-off RTC state.
 
+Save and RTC slots require a full FPGA reload whenever Pocket restarts their
+nonvolatile session. This prevents validation, clear, or RTC state from a
+previous session carrying into the next game load.
+
 The main reason for keeping RTC state in a separate sidecar is save
 interoperability: no K3V-specific footer changes the size or contents of the
 standard cartridge `.sav`. With the same ROM path and filename, that `.sav`
@@ -103,7 +107,7 @@ require a clean Quartus compile,
 fresh output files, complete custom TimeQuest reports, no critical warnings, and
 non-negative timing slack. Every compile is measured against the fixed v0.1.4
 release baseline of 17,655 ALMs and 278 M10K RAM blocks. The v0.2.0 gate rejects
-builds above 16,537 ALMs or 283 M10Ks (+5 versus that baseline), and the next
+builds above 16,582 ALMs or 281 M10Ks (+3 versus that baseline), and the next
 stretch target is at most 16,500 ALMs (89.29% of the device). CI publishes a
 machine-readable JSON result and a Markdown summary for every build. See
 [AUDIT_REPORT.md](AUDIT_REPORT.md).

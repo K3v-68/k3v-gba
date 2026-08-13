@@ -202,6 +202,12 @@ def run_reference_checks(project_root: Path) -> None:
         raise AssertionError("RTC filename must be cloned from the ROM slot")
     if (int(rtc_slot.get("parameters", "0"), 0) & 0x2) != 0:
         raise AssertionError("RTC sidecar must share the .sav platform-common path")
+    for name, slot in (("Save", save_slot), ("RTC", rtc_slot)):
+        parameters = int(slot.get("parameters", "0"), 0)
+        if parameters != 0x104:
+            raise AssertionError(
+                f"{name} slot parameters must be 0x104; found 0x{parameters:X}"
+            )
     if rtc_slot.get("extensions", [None])[0] != "rtc":
         raise AssertionError("RTC sidecar must use the .rtc extension")
     if rtc_slot.get("size_exact") != 16:

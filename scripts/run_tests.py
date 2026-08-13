@@ -97,6 +97,28 @@ def main() -> int:
             vvp,
         ],
     )
+    run(
+        root,
+        [
+            python,
+            "tests/integration/run.py",
+            "--iverilog",
+            iverilog,
+            "--vvp",
+            vvp,
+        ],
+    )
+    run(
+        root,
+        [
+            python,
+            "tests/save_lifecycle/run.py",
+            "--iverilog",
+            iverilog,
+            "--vvp",
+            vvp,
+        ],
+    )
     save_command = [
         python,
         "tests/save/run.py",

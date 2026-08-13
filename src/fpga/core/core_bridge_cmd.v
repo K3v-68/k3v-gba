@@ -36,7 +36,7 @@ input   wire            status_running,             // assert when pocket's take
 output  reg             dataslot_requestread,
 output  reg     [15:0]  dataslot_requestread_id,
 input   wire            dataslot_requestread_ack,
-input   wire            dataslot_requestread_ok,
+input   wire    [1:0]   dataslot_requestread_result,
 
 output  reg             dataslot_requestwrite,
 output  reg     [15:0]  dataslot_requestwrite_id,
@@ -309,8 +309,8 @@ always @(posedge clk) begin
             dataslot_requestread <= 1;
             dataslot_requestread_id <= host_20[15:0];
             if(dataslot_requestread_ack) begin
-                host_resultcode <= 0;
-                if(!dataslot_requestread_ok) host_resultcode <= 2;
+                // 0 = ready, 1 = not allowed, 2 = check again later.
+                host_resultcode <= {14'd0, dataslot_requestread_result};
                 hstate <= ST_DONE_CODE;
             end
         end

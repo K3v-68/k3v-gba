@@ -15,22 +15,22 @@
     "m10ks": 278
   },
   "limits": {
-    "alms": 16537,
-    "m10ks": 283
+    "alms": 16582,
+    "m10ks": 281
   },
   "targets": {
     "alms": 16500
   },
   "tradeoffs": {
     "embedded_cdc_fifos": {
-      "maximum_added_m10ks": 4,
+      "maximum_added_m10ks": 2,
       "requires_alm_reduction": true,
-      "reason": "Keep the consolidated APF write ingress and two unload CDC queues in embedded RAM rather than ALMs."
+      "reason": "Keep the consolidated APF write ingress in embedded RAM while restoring the save-unload CDC queues to their field-proven logic implementation."
     },
     "rtc_record_bank": {
       "maximum_added_m10ks": 1,
       "requires_alm_reduction": true,
-      "reason": "Store the boot-only RTC persistence records in one M10K instead of registers, while retaining 25 free M10Ks."
+      "reason": "Store the boot-only RTC persistence records in one M10K instead of registers, while retaining 27 free M10Ks."
     }
   }
 }

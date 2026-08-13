@@ -433,6 +433,8 @@ reg         save_unloader_data_valid;
 wire        save_unloader_ready;
 wire        gba_save_bus_idle;
 wire        bus_client_idle;
+wire        rtc_init_done;
+wire        reset_n_s;
 reg         save_unload_pending;
 reg  [23:0] save_unload_pause_count;
 wire        save_unload_pause = |save_unload_pause_count;
@@ -608,16 +610,29 @@ reg         clr_guard;    // 1-cycle guard for psram_busy propagation
 wire        save_clear_done = clr_addr[16];
 wire        save_mem_ready  = save_load_complete | save_clear_done;
 wire        clear_client_idle = (clr_state == CLR_IDLE) && !clr_wr;
+// Pocket issues 0x0010 before a nonvolatile flush.  Do not authorize that
+// flush merely because the boot image exists: the reset must have crossed into
+// clk_sys and every PSRAM client must be idle before the first bridge read.
+wire        save_export_quiescent_sys = !reset_n_s && save_load_finalized &&
+    !save_loader_busy && !save_loader_grant && !psram_busy &&
+    !save_unload_pending && clear_client_idle && bus_client_idle;
+wire        cart_export_ready_sys = save_mem_ready && !save_load_failed &&
+    save_export_quiescent_sys;
+wire        rtc_export_ready_sys = rtc_init_done && save_export_quiescent_sys;
+wire        save_unload_common_ready = save_unload_pause &&
+    !save_unload_pending && bus_client_idle && clear_client_idle &&
+    !save_loader_grant;
 assign save_finalize_safe = !save_loader_busy && !save_loader_grant && !psram_busy &&
     !save_unload_pending && clear_client_idle && save_loader_settled;
 assign save_loader_ready = pll_core_locked && save_loader_known_slot &&
     bus_client_idle && clear_client_idle &&
     !save_loader_grant && !psram_busy && !save_unload_pending;
-assign save_unloader_ready = save_mem_ready && !save_load_failed &&
-    save_unload_pause && !save_unload_pending &&
-    bus_client_idle && clear_client_idle && !save_loader_grant &&
-    (save_unload_is_rtc ||
-     (save_unload_is_cart && !psram_busy && !save_loader_wr));
+assign save_unloader_ready = save_unload_common_ready &&
+    ((save_unload_is_cart && cart_export_ready_sys &&
+     !psram_busy && !save_loader_wr) ||
+     // RTC is register-backed and must remain exportable even if the cart-save
+     // import failed.  Apply the same reset/quiescence contract used by 0080.
+     (save_unload_is_rtc && rtc_export_ready_sys));
 
 always @(posedge clk_sys) begin
     clr_wr <= 0;
@@ -1079,7 +1094,6 @@ end
 wire [31:0] rtc_timestamp_out;
 wire [41:0] rtc_savedtime_out;
 wire        rtc_inuse;
-wire        rtc_init_done;
 
 // Save size in clk_sys domain (cart save only, excludes RTC bytes)
 // sram_quirk games may still use EEPROM for saves (e.g. Dragon Ball Z titles),
@@ -1141,7 +1155,6 @@ synch_3 s_allcomplete(dataslot_allcomplete, dataslot_allcomplete_s, clk_sys);
 // Core stays in reset until PLL locks AND all data slots finish loading.
 // Save detection and quirk lookup complete during download (before allcomplete).
 // reset_n is in clk_74a domain — synchronize to clk_sys before use.
-wire reset_n_s;
 synch_3 s_reset_n(reset_n, reset_n_s, clk_sys);
 
 wire core_reset_s;
@@ -1238,8 +1251,60 @@ wire            status_running    = reset_n;
 
 wire            dataslot_requestread;
 wire    [15:0]  dataslot_requestread_id;
-wire            dataslot_requestread_ack = 1;
-wire            dataslot_requestread_ok = 1;
+wire            cart_export_ready_s;
+wire            cart_export_failed_s;
+wire            rtc_export_ready_s;
+
+// Export authorization crosses as sticky levels.  The bridge handler holds its
+// request until acknowledged, so these synchronizers have ample time to settle.
+synch_3 cart_export_ready_sync (
+    .i    ( cart_export_ready_sys ),
+    .o    ( cart_export_ready_s ),
+    .clk  ( clk_74a ),
+    .rise ( ),
+    .fall ( )
+);
+synch_3 cart_export_failed_sync (
+    .i    ( save_load_failed ),
+    .o    ( cart_export_failed_s ),
+    .clk  ( clk_74a ),
+    .rise ( ),
+    .fall ( )
+);
+synch_3 rtc_export_ready_sync (
+    .i    ( rtc_export_ready_sys ),
+    .o    ( rtc_export_ready_s ),
+    .clk  ( clk_74a ),
+    .rise ( ),
+    .fall ( )
+);
+
+// Feed the registered request level back as ACK.  The first ST_PARSE cycle
+// latches the slot ID; the second evaluates the matching result.  A constant
+// ACK would sample the previous request's ID and can authorize the wrong slot.
+wire            dataslot_requestread_ack = dataslot_requestread;
+reg     [1:0]   dataslot_requestread_result;
+always @(*) begin
+    dataslot_requestread_result = 2'd1; // Unknown slots are never exportable.
+    if (!pll_core_locked_s) begin
+        dataslot_requestread_result = 2'd2;
+    end else begin
+        case (dataslot_requestread_id)
+        16'd10: begin
+            // A terminal import failure must win if the independently
+            // synchronized ready level takes an extra cycle to fall.
+            if (cart_export_failed_s)
+                dataslot_requestread_result = 2'd1;
+            else if (cart_export_ready_s)
+                dataslot_requestread_result = 2'd0;
+            else
+                dataslot_requestread_result = 2'd2;
+        end
+        16'd11: dataslot_requestread_result = rtc_export_ready_s ? 2'd0 : 2'd2;
+        default: dataslot_requestread_result = 2'd1;
+        endcase
+    end
+end
 
 wire            dataslot_requestwrite;
 wire    [15:0]  dataslot_requestwrite_id;
@@ -1310,7 +1375,7 @@ core_bridge_cmd icb (
     .dataslot_requestread       ( dataslot_requestread ),
     .dataslot_requestread_id    ( dataslot_requestread_id ),
     .dataslot_requestread_ack   ( dataslot_requestread_ack ),
-    .dataslot_requestread_ok    ( dataslot_requestread_ok ),
+    .dataslot_requestread_result( dataslot_requestread_result ),
 
     .dataslot_requestwrite      ( dataslot_requestwrite ),
     .dataslot_requestwrite_id   ( dataslot_requestwrite_id ),
