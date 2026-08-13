@@ -21,6 +21,8 @@ $RawBitstream = Join-Path $ProjectDirectory 'src\fpga\build\output_files\ap_core
 $PocketBitstream = Join-Path $ProjectDirectory 'pkg\Cores\K3V.GBA\bitstream.rbf_r'
 $BuildOutput = Join-Path $ProjectDirectory 'build_output'
 $BuildLog = Join-Path $BuildOutput 'quartus-build.log'
+$ResourceJson = Join-Path $BuildOutput 'resource-usage.json'
+$ResourceMarkdown = Join-Path $BuildOutput 'resource-usage.md'
 $FreshnessLog = Join-Path $BuildOutput 'prebuild-freshness.txt'
 $QuartusImage = 'raetro/quartus@sha256:817a783727492269d33aa98c903e8efc216e95d785ee76bfc8f426eddee98d0b'
 
@@ -102,6 +104,15 @@ function Resolve-QuartusCommand {
     return $null
 }
 
+New-Item -ItemType Directory -Path $BuildOutput -Force | Out-Null
+
+# Do not allow an aborted build to leave an older image or resource report
+# looking like the result of this invocation.
+Remove-Item -LiteralPath $RawBitstream -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $PocketBitstream -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $ResourceJson -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $ResourceMarkdown -Force -ErrorAction SilentlyContinue
+
 $PythonCommand = Resolve-PythonCommand
 $NativeQuartus = $null
 if ($Backend -ne 'Docker') {
@@ -119,15 +130,9 @@ if ($Backend -eq 'Auto') {
     }
 }
 
-New-Item -ItemType Directory -Path $BuildOutput -Force | Out-Null
 Push-Location $ProjectDirectory
 try {
     $BuildStartedUtc = [DateTime]::UtcNow
-
-    # A failed compile must never leave an older image looking like the result
-    # of this invocation. These are the only two generated bitstream targets.
-    Remove-Item -LiteralPath $RawBitstream -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $PocketBitstream -Force -ErrorAction SilentlyContinue
 
     $FreshnessSources = @(
         'generate.tcl',

@@ -24,6 +24,7 @@
   "tradeoffs": {
     "embedded_cdc_fifos": {
       "maximum_added_m10ks": 7,
+      "requires_alm_reduction": true,
       "reason": "Move five tiny transfer CDC FIFOs out of ALMs while retaining 23 free M10Ks."
     }
   }
