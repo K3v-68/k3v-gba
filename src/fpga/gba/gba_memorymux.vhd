@@ -268,14 +268,15 @@ architecture arch of gba_memorymux is
    signal SAVESTATE_FLASH_BACK  : std_logic_vector(16 downto 0);
 
    -- mem_bus_done is a single-cycle handshake consumed throughout the CPU.
-   -- Keep the source register in place (rather than retiming its state mux
-   -- across the hierarchy) while allowing bounded local duplicates for its
-   -- high fan-out destinations.  This preserves protocol latency and reduces
-   -- the critical routing load seen by the fitter.
+   -- Keep its source register in place so the state mux cannot be retimed
+   -- through the hierarchy.  Do not replicate that register: every replica
+   -- inherits the full input mux, and a distant copy can turn the cache-hit
+   -- path into a routing-critical path.  A single barrier preserves protocol
+   -- latency while letting the router distribute only its registered output.
    attribute preserve : boolean;
    attribute preserve of mem_bus_done : signal is true;
-   attribute maxfan : integer;
-   attribute maxfan of mem_bus_done : signal is 16;
+   attribute dont_replicate : boolean;
+   attribute dont_replicate of mem_bus_done : signal is true;
 
 begin
 
