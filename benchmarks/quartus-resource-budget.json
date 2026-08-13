@@ -15,17 +15,17 @@
     "m10ks": 278
   },
   "limits": {
-    "alms": 17567,
-    "m10ks": 285
+    "alms": 16667,
+    "m10ks": 282
   },
   "targets": {
-    "alms": 17000
+    "alms": 16500
   },
   "tradeoffs": {
     "embedded_cdc_fifos": {
-      "maximum_added_m10ks": 7,
+      "maximum_added_m10ks": 4,
       "requires_alm_reduction": true,
-      "reason": "Move five tiny transfer CDC FIFOs out of ALMs while retaining 23 free M10Ks."
+      "reason": "Keep the consolidated APF write ingress and two unload CDC queues in embedded RAM rather than ALMs, while retaining 26 free M10Ks."
     }
   }
 }
