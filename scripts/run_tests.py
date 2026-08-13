@@ -86,6 +86,17 @@ def main() -> int:
             vvp,
         ],
     )
+    run(
+        root,
+        [
+            python,
+            "tests/loader/run.py",
+            "--iverilog",
+            iverilog,
+            "--vvp",
+            vvp,
+        ],
+    )
     save_command = [
         python,
         "tests/save/run.py",
