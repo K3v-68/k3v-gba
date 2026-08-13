@@ -33,6 +33,15 @@ jobs:
             raetro/quartus@sha256:817a783727492269d33aa98c903e8efc216e95d785ee76bfc8f426eddee98d0b \
             quartus_sh -t generate.tcl 2>&1 | tee build_output/quartus-build.log
 
+      - name: Enforce resource budget
+        run: |
+          python3 scripts/check_quartus_resources.py \
+            --summary src/fpga/build/output_files/ap_core.fit.summary \
+            --qsf src/fpga/build/ap_core.qsf \
+            --json-out build_output/resource-usage.json \
+            --markdown-out build_output/resource-usage.md \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
       - name: Enforce timing and report gates
         run: |
           scripts/print_timing.sh \
@@ -130,4 +139,6 @@ jobs:
             src/fpga/build/output_files/ap_core.sta.summary
             src/fpga/build/output_files/ap_core.sta.rpt
             src/fpga/build/output_files/ap_core.flow.rpt
+            build_output/resource-usage.json
+            build_output/resource-usage.md
             build_output/reports/

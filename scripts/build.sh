@@ -65,6 +65,18 @@ if [[ ! -s "$RBF" ]]; then
 fi
 
 echo ""
+echo "=== Enforcing FPGA resource budget ==="
+if ! "$PYTHON_CMD" "$SCRIPT_DIR/check_quartus_resources.py" \
+    --summary "$PROJECT_DIR/src/fpga/build/output_files/ap_core.fit.summary" \
+    --qsf "$PROJECT_DIR/src/fpga/build/ap_core.qsf" \
+    --json-out "$PROJECT_DIR/build_output/resource-usage.json" \
+    --markdown-out "$PROJECT_DIR/build_output/resource-usage.md"; then
+  rm -f -- "$RBF" "$RBF_R"
+  echo "Quartus resource budget failed; release images removed." >&2
+  exit 1
+fi
+
+echo ""
 echo "=== Enforcing release timing/report gates ==="
 if ! "$SCRIPT_DIR/print_timing.sh" \
     "$PROJECT_DIR/src/fpga/build/output_files/ap_core.sta.summary" \

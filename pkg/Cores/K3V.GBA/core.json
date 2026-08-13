@@ -8,7 +8,7 @@
       "shortname": "GBA",
       "description": "GBA with RTC, save states and fast-forward",
       "author": "K3V",
-      "url": "https://github.com/KevinGaudry/k3v-gba",
+      "url": "https://github.com/K3v-68/k3v-gba",
       "version": "0.1.4",
       "date_release": "2026-08-13"
     },
