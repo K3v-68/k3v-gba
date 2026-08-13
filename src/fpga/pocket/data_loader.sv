@@ -103,7 +103,7 @@ module data_loader #(
       dcfifo_component.lpm_showahead = "OFF", dcfifo_component.lpm_type = "dcfifo",
       dcfifo_component.lpm_width = FIFO_SIZE, dcfifo_component.lpm_widthu = 2,
       dcfifo_component.overflow_checking = "OFF", dcfifo_component.rdsync_delaypipe = 5,
-      dcfifo_component.underflow_checking = "OFF", dcfifo_component.use_eab = "OFF",
+      dcfifo_component.underflow_checking = "OFF", dcfifo_component.use_eab = "ON",
       dcfifo_component.wrsync_delaypipe = 5;
 
   /// APF to Mem clock
