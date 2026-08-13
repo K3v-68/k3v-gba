@@ -382,6 +382,18 @@ def main() -> int:
         assert "Remove-Item -LiteralPath $ResourceJson" in powershell_build
         assert "Remove-Item -LiteralPath $ResourceMarkdown" in powershell_build
 
+        # Keep the memory-bus completion pulse as one explicit register
+        # barrier. Forced max-fanout replicas have previously moved the full
+        # cache-hit mux onto distant copies and broken setup timing.
+        memorymux = (ROOT / "src/fpga/gba/gba_memorymux.vhd").read_text(
+            encoding="utf-8"
+        )
+        assert "attribute preserve of mem_bus_done : signal is true;" in memorymux
+        assert (
+            "attribute dont_replicate of mem_bus_done : signal is true;" in memorymux
+        )
+        assert "attribute maxfan of mem_bus_done" not in memorymux
+
     print("Quartus resource parser and budget checks passed")
     return 0
 
