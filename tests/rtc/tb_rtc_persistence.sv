@@ -112,19 +112,47 @@ module tb_rtc_persistence;
     end
     endtask
 
-    task automatic finish_load;
+    task automatic wait_for_load;
         integer wait_cycles;
     begin
-        finalize_load = 1'b1;
-        tick();
-        finalize_load = 1'b0;
         wait_cycles = 0;
-        while (!load_complete && wait_cycles < 10) begin
+        // The M10K-backed record store replays both candidates through one
+        // synchronous read port before committing the selected source.
+        while (!load_complete && wait_cycles < 64) begin
             tick();
             wait_cycles = wait_cycles + 1;
         end
         if (!load_complete)
             $fatal(1, "RTC persistence did not finalize");
+    end
+    endtask
+
+    task automatic finish_load;
+    begin
+        finalize_load = 1'b1;
+        tick();
+        finalize_load = 1'b0;
+        wait_for_load();
+    end
+    endtask
+
+    task automatic write_word_and_finalize(
+        input [27:0] address,
+        input [15:0] value
+    );
+    begin
+        // Exercise the strongest safe boundary: the final accepted halfword
+        // and finalize request arrive on the same clock edge.
+        loader_addr = address;
+        loader_data = value;
+        loader_accept = 1'b1;
+        finalize_load = 1'b1;
+        tick();
+        loader_accept = 1'b0;
+        finalize_load = 1'b0;
+        if (load_complete)
+            $fatal(1, "RTC persistence completed before replaying M10K data");
+        wait_for_load();
     end
     endtask
 
@@ -180,6 +208,104 @@ module tb_rtc_persistence;
         if (!legacy_record_valid || !sidecar_record_valid)
             $fatal(1, "dual-source records did not validate");
         expect_loaded(32'h6500_0010, LEGACY_TIME, "legacy migration precedence");
+
+        // Both M10K banks accept arbitrary arrival order. Interleave two
+        // complete records and scramble every word while preserving legacy
+        // migration precedence.
+        reset_dut();
+        write_word(RTC_BASE + 28'd14, 16'd0);
+        write_word(CART_BASE + 28'h001_0006, LEGACY_TIME[31:16]);
+        write_word(RTC_BASE + 28'd0, 16'h0021);
+        write_word(CART_BASE + 28'h001_000E, 16'd0);
+        write_word(RTC_BASE + 28'd8, {6'd0, SIDECAR_TIME[41:32]});
+        write_word(CART_BASE + 28'h001_0002, 16'h6500);
+        write_word(RTC_BASE + 28'd4, SIDECAR_TIME[15:0]);
+        write_word(CART_BASE + 28'h001_000A, 16'd0);
+        write_word(RTC_BASE + 28'd12, 16'd0);
+        write_word(CART_BASE + 28'h001_0000, 16'h0011);
+        write_word(RTC_BASE + 28'd2, 16'h6600);
+        write_word(CART_BASE + 28'h001_0008,
+                   {6'd0, LEGACY_TIME[41:32]});
+        write_word(RTC_BASE + 28'd6, SIDECAR_TIME[31:16]);
+        write_word(CART_BASE + 28'h001_0004, LEGACY_TIME[15:0]);
+        write_word(RTC_BASE + 28'd10, 16'd0);
+        write_word(CART_BASE + 28'h001_000C, 16'd0);
+        finish_load();
+        if (!legacy_record_valid || !sidecar_record_valid)
+            $fatal(1, "interleaved out-of-order records did not validate");
+        expect_loaded(32'h6500_0011, LEGACY_TIME,
+                      "interleaved legacy precedence");
+
+        // Duplicate data halfwords retain the last accepted value. Reserved
+        // and padding errors are intentionally different and remain sticky,
+        // as covered by the corrupt-padding scenario below.
+        reset_dut();
+        write_record(RTC_BASE, 32'h6600_0022, SIDECAR_TIME);
+        write_word(RTC_BASE + 28'd0, 16'hDEAD);
+        write_word(RTC_BASE + 28'd0, 16'h0022);
+        finish_load();
+        if (!sidecar_record_valid)
+            $fatal(1, "corrected duplicate data word invalidated sidecar");
+        expect_loaded(32'h6600_0022, SIDECAR_TIME,
+                      "duplicate data last-write wins");
+
+        // The final accepted word may coincide with finalize_load. The read
+        // sequencer must still observe the just-written RAM word and commit
+        // only after the complete record has been replayed.
+        reset_dut();
+        write_word(RTC_BASE + 28'd0, 16'h0023);
+        write_word(RTC_BASE + 28'd2, 16'h6600);
+        write_word(RTC_BASE + 28'd4, SIDECAR_TIME[15:0]);
+        write_word(RTC_BASE + 28'd6, SIDECAR_TIME[31:16]);
+        write_word(RTC_BASE + 28'd8, {6'd0, SIDECAR_TIME[41:32]});
+        write_word(RTC_BASE + 28'd10, 16'd0);
+        write_word(RTC_BASE + 28'd12, 16'd0);
+        write_word_and_finalize(RTC_BASE + 28'd14, 16'd0);
+        if (!sidecar_record_valid)
+            $fatal(1, "same-cycle final write/finalize lost sidecar");
+        expect_loaded(32'h6600_0023, SIDECAR_TIME,
+                      "same-cycle final write and finalize");
+
+        // Force a real same-address write/read collision. Word 0 already
+        // exists and is rewritten on the edge that starts replay at address
+        // zero. The inferred M10K is allowed to return old data on that edge;
+        // READ_WAIT must give it another cycle so the committed record uses
+        // the final accepted value.
+        reset_dut();
+        write_record(RTC_BASE, 32'h6600_DEAD, SIDECAR_TIME);
+        write_word_and_finalize(RTC_BASE + 28'd0, 16'h0024);
+        if (!sidecar_record_valid)
+            $fatal(1, "same-address M10K collision invalidated sidecar");
+        expect_loaded(32'h6600_0024, SIDECAR_TIME,
+                      "same-address collision last-write wins");
+
+        // Once load_complete is visible, neither stray loader writes nor host
+        // input changes may mutate the committed startup snapshot.
+        loader_addr = RTC_BASE;
+        loader_data = 16'hBEEF;
+        loader_accept = 1'b1;
+        host_epoch = 32'h1111_2222;
+        host_savedtime = DEFAULT_TIME;
+        live_timestamp = 32'h3333_4444;
+        live_savedtime = LEGACY_TIME;
+        finalize_load = 1'b1;
+        repeat (3) tick();
+        loader_accept = 1'b0;
+        finalize_load = 1'b0;
+        expect_loaded(32'h6600_0024, SIDECAR_TIME,
+                      "completed startup snapshot is immutable");
+        if (!load_complete)
+            $fatal(1, "post-completion perturbation cleared load_complete");
+
+        // Block RAM is deliberately not reset. Seen bits must prevent the
+        // complete record above from leaking into the next partial load.
+        reset_dut();
+        write_word(RTC_BASE + 28'd2, 16'hFFFF);
+        finish_load();
+        expect_loaded(host_epoch, HOST_TIME,
+                      "reset then partial record ignores stale RAM");
+        if (stored_record_present || sidecar_record_valid)
+            $fatal(1, "stale M10K contents made a partial sidecar valid");
 
         // Corrupt sidecar padding falls back to a valid legacy footer and is
         // still marked present so shutdown repairs the 16-byte sidecar.
@@ -262,6 +388,18 @@ module tb_rtc_persistence;
         expect_loaded(32'd0, HOST_TIME, "invalid Pocket epoch gates sidecar");
         if (!sidecar_record_valid)
             $fatal(1, "valid sidecar was not independently recognized");
+
+        // Both invalid host-epoch sentinels gate every persisted source,
+        // including a valid legacy footer with otherwise higher precedence.
+        reset_dut();
+        host_epoch = 32'hFFFF_FFFF;
+        write_record(CART_BASE + 28'h001_0000,
+                     32'h6500_0056, LEGACY_TIME);
+        finish_load();
+        expect_loaded(32'hFFFF_FFFF, HOST_TIME,
+                      "all-ones host epoch gates legacy");
+        if (!legacy_record_valid || !stored_record_present)
+            $fatal(1, "valid gated legacy record was not independently recognized");
 
         reset_dut();
         write_record(CART_BASE + 28'h001_0000, 32'h6500_0060, LEGACY_TIME);

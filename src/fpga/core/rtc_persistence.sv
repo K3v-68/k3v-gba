@@ -41,21 +41,28 @@ module rtc_persistence #(
     localparam [41:0] DEFAULT_SAVEDTIME =
         {8'h00, 5'h01, 6'h01, 3'd0, 6'h00, 7'h00, 7'h00};
 
-    reg [31:0] sidecar_timestamp;
-    reg [41:0] sidecar_savedtime;
     reg        sidecar_format_error;
     reg [7:0]  sidecar_word_seen;
 
-    reg [31:0] legacy_timestamp;
-    reg [41:0] legacy_savedtime;
     reg        legacy_format_error;
     reg [7:0]  legacy_word_seen;
 
+    // Both records are consumed only after Pocket finishes loading all data
+    // slots. Keep their accepted halfwords in one M10K and replay one source
+    // at a time through the shared boot validator. Seen/error bits remain in
+    // registers so stale, uncleared RAM can never make a partial record valid.
+    localparam RECORD_BANK_SIDECAR = 1'b0;
+    localparam RECORD_BANK_LEGACY  = 1'b1;
+    (* ramstyle = "M10K, no_rw_check" *) reg [15:0] record_ram [0:15];
+    reg [3:0]  record_read_addr;
+    reg [15:0] record_read_data;
+
     reg        sidecar_record_valid_r;
     reg        legacy_record_valid_r;
-    reg        validation_result;
     reg [2:0]  validation_state;
-    reg [41:0] validation_savedtime;
+    reg [1:0]  load_phase;
+    reg [2:0]  read_word_index;
+    reg        host_savedtime_valid_r;
 
     reg [31:0] unload_timestamp_snapshot;
     reg [41:0] unload_savedtime_snapshot;
@@ -64,6 +71,19 @@ module rtc_persistence #(
     wire loader_is_rtc  = loader_addr[27:24] == RTC_SLOT_REGION;
     wire [23:0] loader_offset = loader_addr[23:0];
     wire [23:0] legacy_offset = loader_offset - save_size;
+
+    wire sidecar_word_accept = loader_accept && loader_is_rtc &&
+        (loader_offset[23:4] == 20'd0) && !loader_offset[0];
+    wire legacy_word_accept = loader_accept && loader_is_save &&
+        (loader_offset >= save_size) &&
+        (loader_offset < save_size + 24'd16) && !legacy_offset[0];
+    wire [2:0] accepted_word_index = legacy_word_accept ?
+        legacy_offset[3:1] : loader_offset[3:1];
+    wire [3:0] record_write_addr = {
+        legacy_word_accept ? RECORD_BANK_LEGACY : RECORD_BANK_SIDECAR,
+        accepted_word_index
+    };
+    wire record_write_en = sidecar_word_accept || legacy_word_accept;
 
     wire unloader_is_rtc = unloader_addr[27:24] == RTC_SLOT_REGION;
     wire [23:0] unloader_offset = unloader_addr[23:0];
@@ -125,160 +145,177 @@ module rtc_persistence #(
     wire host_epoch_valid = (host_epoch != 32'd0) &&
                             (host_epoch != 32'hFFFF_FFFF);
 
-    localparam [2:0] VALIDATE_IDLE     = 3'd0;
-    localparam [2:0] VALIDATE_LEGACY   = 3'd1;
-    localparam [2:0] VALIDATE_SIDECAR  = 3'd2;
-    localparam [2:0] VALIDATE_HOST     = 3'd3;
-    localparam [2:0] VALIDATE_SELECT   = 3'd4;
-    localparam [2:0] VALIDATE_DONE     = 3'd5;
+    localparam [2:0] VALIDATE_IDLE         = 3'd0;
+    localparam [2:0] VALIDATE_READ_WAIT    = 3'd1;
+    localparam [2:0] VALIDATE_READ_CAPTURE = 3'd2;
+    localparam [2:0] VALIDATE_RECORD       = 3'd3;
+    localparam [2:0] VALIDATE_HOST         = 3'd4;
+    localparam [2:0] VALIDATE_SELECT       = 3'd5;
+    localparam [2:0] VALIDATE_DONE         = 3'd6;
+
+    localparam [1:0] LOAD_SIDECAR   = 2'd0;
+    localparam [1:0] LOAD_LEGACY    = 2'd1;
+    localparam [1:0] RELOAD_SIDECAR = 2'd2;
 
     wire sidecar_record_complete = sidecar_word_seen == 8'hFF;
     wire legacy_record_complete  = legacy_word_seen == 8'hFF;
-    wire sidecar_record_shape_valid = sidecar_record_complete &&
-        !sidecar_format_error && (sidecar_timestamp != 32'd0) &&
-        (sidecar_timestamp != 32'hFFFF_FFFF);
-    wire legacy_record_shape_valid = legacy_record_complete &&
-        !legacy_format_error && (legacy_timestamp != 32'd0) &&
-        (legacy_timestamp != 32'hFFFF_FFFF);
+    wire loaded_timestamp_shape_valid = (loaded_timestamp != 32'd0) &&
+        (loaded_timestamp != 32'hFFFF_FFFF);
+    // Keep one calendar validator: loaded_* holds each persisted candidate in
+    // turn, then the same logic checks Pocket's host calendar.
+    wire [41:0] validation_savedtime =
+        (validation_state == VALIDATE_HOST) ?
+            host_savedtime : loaded_savedtime;
+    wire validation_bcd_valid = bcd_time_valid(validation_savedtime);
 
     assign sidecar_record_valid = sidecar_record_valid_r;
     assign legacy_record_valid  = legacy_record_valid_r;
-
-    // One narrow calendar validator is time-shared across all three sources.
-    // Boot already waits for Pocket's all-complete/RTC events, so these few
-    // additional 100 MHz cycles are unobservable to software.
-    always @(*) begin
-        case (validation_state)
-            VALIDATE_LEGACY:  validation_savedtime = legacy_savedtime;
-            VALIDATE_SIDECAR: validation_savedtime = sidecar_savedtime;
-            default:          validation_savedtime = host_savedtime;
-        endcase
-    end
-    wire validation_bcd_valid = bcd_time_valid(validation_savedtime);
 
     // A complete sidecar is preserved even if its contents are invalid: the
     // Pocket-clock fallback will repair it on the next clean shutdown.
     assign stored_record_present = sidecar_record_complete ||
                                    legacy_record_valid;
 
+    // Simple dual-port inference: loader writes use one port and the boot-only
+    // sequencer uses the synchronous read port. core_top does not finalize
+    // until the shared ingress is drained, so normal operation cannot collide.
+    always @(posedge clk) begin
+        if (reset_n && record_write_en)
+            record_ram[record_write_addr] <= loader_data;
+        record_read_data <= record_ram[record_read_addr];
+    end
+
     always @(posedge clk) begin
         if (!reset_n) begin
-            sidecar_timestamp <= 32'd0;
-            sidecar_savedtime <= 42'd0;
             sidecar_format_error <= 1'b0;
             sidecar_word_seen <= 8'd0;
 
-            legacy_timestamp <= 32'd0;
-            legacy_savedtime <= 42'd0;
             legacy_format_error <= 1'b0;
             legacy_word_seen <= 8'd0;
 
             sidecar_record_valid_r <= 1'b0;
             legacy_record_valid_r  <= 1'b0;
-            validation_result      <= 1'b0;
             validation_state       <= VALIDATE_IDLE;
+            load_phase             <= LOAD_SIDECAR;
+            read_word_index        <= 3'd0;
+            record_read_addr       <= {RECORD_BANK_SIDECAR, 3'd0};
+            host_savedtime_valid_r <= 1'b0;
 
             loaded_timestamp <= 32'd0;
             loaded_savedtime <= 42'd0;
             load_complete    <= 1'b0;
         end else begin
-            if (loader_accept && loader_is_rtc) begin
-                case (loader_offset)
-                    24'd0:  begin sidecar_timestamp[15:0]  <= loader_data; sidecar_word_seen[0] <= 1'b1; end
-                    24'd2:  begin sidecar_timestamp[31:16] <= loader_data; sidecar_word_seen[1] <= 1'b1; end
-                    24'd4:  begin sidecar_savedtime[15:0]  <= loader_data; sidecar_word_seen[2] <= 1'b1; end
-                    24'd6:  begin sidecar_savedtime[31:16] <= loader_data; sidecar_word_seen[3] <= 1'b1; end
-                    24'd8:  begin
-                        sidecar_savedtime[41:32] <= loader_data[9:0];
-                        if (loader_data[15:10] != 6'd0)
-                            sidecar_format_error <= 1'b1;
-                        sidecar_word_seen[4] <= 1'b1;
-                    end
-                    24'd10: begin
-                        if (loader_data != 16'd0) sidecar_format_error <= 1'b1;
-                        sidecar_word_seen[5] <= 1'b1;
-                    end
-                    24'd12: begin
-                        if (loader_data != 16'd0) sidecar_format_error <= 1'b1;
-                        sidecar_word_seen[6] <= 1'b1;
-                    end
-                    24'd14: begin
-                        if (loader_data != 16'd0) sidecar_format_error <= 1'b1;
-                        sidecar_word_seen[7] <= 1'b1;
-                    end
-                    default: ;
-                endcase
+            if (sidecar_word_accept) begin
+                sidecar_word_seen[accepted_word_index] <= 1'b1;
+                if ((accepted_word_index == 3'd4 &&
+                     loader_data[15:10] != 6'd0) ||
+                    (accepted_word_index >= 3'd5 && loader_data != 16'd0))
+                    sidecar_format_error <= 1'b1;
             end
 
-            if (loader_accept && loader_is_save &&
-                (loader_offset >= save_size) &&
-                (loader_offset < save_size + 24'd16)) begin
-                case (legacy_offset)
-                    24'd0:  begin legacy_timestamp[15:0]  <= loader_data; legacy_word_seen[0] <= 1'b1; end
-                    24'd2:  begin legacy_timestamp[31:16] <= loader_data; legacy_word_seen[1] <= 1'b1; end
-                    24'd4:  begin legacy_savedtime[15:0]  <= loader_data; legacy_word_seen[2] <= 1'b1; end
-                    24'd6:  begin legacy_savedtime[31:16] <= loader_data; legacy_word_seen[3] <= 1'b1; end
-                    24'd8:  begin
-                        legacy_savedtime[41:32] <= loader_data[9:0];
-                        if (loader_data[15:10] != 6'd0)
-                            legacy_format_error <= 1'b1;
-                        legacy_word_seen[4] <= 1'b1;
-                    end
-                    24'd10: begin
-                        if (loader_data != 16'd0) legacy_format_error <= 1'b1;
-                        legacy_word_seen[5] <= 1'b1;
-                    end
-                    24'd12: begin
-                        if (loader_data != 16'd0) legacy_format_error <= 1'b1;
-                        legacy_word_seen[6] <= 1'b1;
-                    end
-                    24'd14: begin
-                        if (loader_data != 16'd0) legacy_format_error <= 1'b1;
-                        legacy_word_seen[7] <= 1'b1;
-                    end
-                    default: ;
-                endcase
+            if (legacy_word_accept) begin
+                legacy_word_seen[accepted_word_index] <= 1'b1;
+                if ((accepted_word_index == 3'd4 &&
+                     loader_data[15:10] != 6'd0) ||
+                    (accepted_word_index >= 3'd5 && loader_data != 16'd0))
+                    legacy_format_error <= 1'b1;
             end
 
             case (validation_state)
                 VALIDATE_IDLE: begin
-                    if (finalize_load)
-                        validation_state <= VALIDATE_LEGACY;
+                    if (finalize_load) begin
+                        // loaded_* are scratch until load_complete. core_top
+                        // waits for that flag before the live RTC consumes them.
+                        load_phase       <= LOAD_SIDECAR;
+                        read_word_index  <= 3'd0;
+                        record_read_addr <= {RECORD_BANK_SIDECAR, 3'd0};
+                        validation_state <= VALIDATE_READ_WAIT;
+                    end
                 end
-                VALIDATE_LEGACY: begin
-                    validation_result <= legacy_record_shape_valid &&
-                                         validation_bcd_valid;
-                    validation_state <= VALIDATE_SIDECAR;
+
+                // record_read_data is registered. Hold each address for one
+                // full clock before consuming it in READ_CAPTURE.
+                VALIDATE_READ_WAIT: begin
+                    validation_state <= VALIDATE_READ_CAPTURE;
                 end
-                VALIDATE_SIDECAR: begin
-                    legacy_record_valid_r <= validation_result;
-                    validation_result <= sidecar_record_shape_valid &&
-                                         validation_bcd_valid;
-                    validation_state <= VALIDATE_HOST;
+
+                VALIDATE_READ_CAPTURE: begin
+                    case (read_word_index)
+                        3'd0: loaded_timestamp[15:0]  <= record_read_data;
+                        3'd1: loaded_timestamp[31:16] <= record_read_data;
+                        3'd2: loaded_savedtime[15:0]  <= record_read_data;
+                        3'd3: loaded_savedtime[31:16] <= record_read_data;
+                        default:
+                            loaded_savedtime[41:32] <= record_read_data[9:0];
+                    endcase
+
+                    if (read_word_index == 3'd4) begin
+                        if (load_phase == RELOAD_SIDECAR) begin
+                            // Final word and completion become visible on the
+                            // same edge, so consumers cannot observe tearing.
+                            load_complete    <= 1'b1;
+                            validation_state <= VALIDATE_DONE;
+                        end else begin
+                            validation_state <= VALIDATE_RECORD;
+                        end
+                    end else begin
+                        read_word_index <= read_word_index + 3'd1;
+                        record_read_addr <= {
+                            (load_phase == LOAD_LEGACY) ?
+                                RECORD_BANK_LEGACY : RECORD_BANK_SIDECAR,
+                            read_word_index + 3'd1
+                        };
+                        validation_state <= VALIDATE_READ_WAIT;
+                    end
                 end
+
+                VALIDATE_RECORD: begin
+                    if (load_phase == LOAD_SIDECAR) begin
+                        sidecar_record_valid_r <= sidecar_record_complete &&
+                            !sidecar_format_error &&
+                            loaded_timestamp_shape_valid &&
+                            validation_bcd_valid;
+                        load_phase       <= LOAD_LEGACY;
+                        read_word_index  <= 3'd0;
+                        record_read_addr <= {RECORD_BANK_LEGACY, 3'd0};
+                        validation_state <= VALIDATE_READ_WAIT;
+                    end else begin
+                        legacy_record_valid_r <= legacy_record_complete &&
+                            !legacy_format_error &&
+                            loaded_timestamp_shape_valid &&
+                            validation_bcd_valid;
+                        validation_state <= VALIDATE_HOST;
+                    end
+                end
+
                 VALIDATE_HOST: begin
-                    sidecar_record_valid_r <= validation_result;
-                    validation_result <= validation_bcd_valid;
+                    host_savedtime_valid_r <= validation_bcd_valid;
                     validation_state <= VALIDATE_SELECT;
                 end
+
                 VALIDATE_SELECT: begin
                     // A footer can only be produced by an older core. Treat it
                     // as an explicit migration source when both records exist.
                     // This also preserves changes made after returning to
                     // v0.1.2, even if the host clock moved backwards.
                     if (host_epoch_valid && legacy_record_valid_r) begin
-                        loaded_timestamp <= legacy_timestamp;
-                        loaded_savedtime <= legacy_savedtime;
+                        // The legacy record is already in loaded_*.
+                        load_complete <= 1'b1;
+                        validation_state <= VALIDATE_DONE;
                     end else if (host_epoch_valid && sidecar_record_valid_r) begin
-                        loaded_timestamp <= sidecar_timestamp;
-                        loaded_savedtime <= sidecar_savedtime;
+                        // Legacy validation reused the scratch registers, so
+                        // replay the validated sidecar before committing it.
+                        load_phase       <= RELOAD_SIDECAR;
+                        read_word_index  <= 3'd0;
+                        record_read_addr <= {RECORD_BANK_SIDECAR, 3'd0};
+                        validation_state <= VALIDATE_READ_WAIT;
                     end else begin
                         loaded_timestamp <= host_epoch;
-                        loaded_savedtime <= validation_result ?
+                        loaded_savedtime <= host_savedtime_valid_r ?
                                             host_savedtime : DEFAULT_SAVEDTIME;
+                        load_complete <= 1'b1;
+                        validation_state <= VALIDATE_DONE;
                     end
-                    load_complete <= 1'b1;
-                    validation_state <= VALIDATE_DONE;
                 end
                 default: ;
             endcase
