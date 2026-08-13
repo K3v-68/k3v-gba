@@ -15,7 +15,7 @@
     "m10ks": 278
   },
   "limits": {
-    "alms": 16637,
+    "alms": 16537,
     "m10ks": 283
   },
   "targets": {
@@ -30,7 +30,7 @@
     "rtc_record_bank": {
       "maximum_added_m10ks": 1,
       "requires_alm_reduction": true,
-      "reason": "Measure one M10K for the boot-only RTC record bank, accepting it only with at least 30 additional ALMs saved and 25 M10Ks left free."
+      "reason": "Store the boot-only RTC persistence records in one M10K instead of registers, while retaining 25 free M10Ks."
     }
   }
 }

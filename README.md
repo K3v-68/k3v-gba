@@ -103,7 +103,7 @@ require a clean Quartus compile,
 fresh output files, complete custom TimeQuest reports, no critical warnings, and
 non-negative timing slack. Every compile is measured against the fixed v0.1.4
 release baseline of 17,655 ALMs and 278 M10K RAM blocks. The v0.2.0 gate rejects
-builds above 16,667 ALMs or 282 M10Ks (+4 versus that baseline), and the next
+builds above 16,537 ALMs or 283 M10Ks (+5 versus that baseline), and the next
 stretch target is at most 16,500 ALMs (89.29% of the device). CI publishes a
 machine-readable JSON result and a Markdown summary for every build. See
 [AUDIT_REPORT.md](AUDIT_REPORT.md).
