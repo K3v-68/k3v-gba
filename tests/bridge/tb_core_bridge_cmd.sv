@@ -31,7 +31,7 @@ module tb_core_bridge_cmd;
     wire        dataslot_requestread;
     wire [15:0] dataslot_requestread_id;
     reg         dataslot_requestread_ack = 1'b1;
-    reg         dataslot_requestread_ok = 1'b1;
+    reg  [1:0]  dataslot_requestread_result = 2'd0;
     wire        dataslot_requestwrite;
     wire [15:0] dataslot_requestwrite_id;
     wire [31:0] dataslot_requestwrite_size;
@@ -83,7 +83,7 @@ module tb_core_bridge_cmd;
         .dataslot_requestread(dataslot_requestread),
         .dataslot_requestread_id(dataslot_requestread_id),
         .dataslot_requestread_ack(dataslot_requestread_ack),
-        .dataslot_requestread_ok(dataslot_requestread_ok),
+        .dataslot_requestread_result(dataslot_requestread_result),
         .dataslot_requestwrite(dataslot_requestwrite),
         .dataslot_requestwrite_id(dataslot_requestwrite_id),
         .dataslot_requestwrite_size(dataslot_requestwrite_size),
@@ -235,6 +235,23 @@ module tb_core_bridge_cmd;
         if (!dataslot_requestread || dataslot_requestread_id !== 16'h1234)
             $fatal(1, "dataslot read request/id changed");
         finish_host_command(16'd0, "dataslot read");
+
+        // A pending import asks Pocket to check again later.  Shutdown must not
+        // read a zero-initialized or otherwise unverified memory image.
+        dataslot_requestread_result = 2'd2;
+        bridge_write_word(HOST_PARAM0_ADDR, 32'h0000_000A);
+        start_host_command(16'h0080);
+        if (!dataslot_requestread || dataslot_requestread_id !== 16'd10)
+            $fatal(1, "blocked save read request/id changed");
+        finish_host_command(16'd2, "blocked save read asks host to retry");
+
+        // A finalized failed import is terminal for this launch.  Result 1
+        // prevents Pocket from retrying forever or touching the source file.
+        dataslot_requestread_result = 2'd1;
+        bridge_write_word(HOST_PARAM0_ADDR, 32'h0000_000A);
+        start_host_command(16'h0080);
+        finish_host_command(16'd1, "failed save read is permanently refused");
+        dataslot_requestread_result = 2'd0;
 
         dataslot_requestwrite_ok = 1'b0;
         bridge_write_word(HOST_PARAM0_ADDR, 32'h0000_5678);

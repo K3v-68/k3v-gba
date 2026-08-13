@@ -96,6 +96,7 @@ def validate_data_slots(root: Path) -> None:
         raise ValueError("Save slot 10 and RTC sidecar slot 11 are required")
     if save_slot.get("size_maximum") != "0x20010":
         raise ValueError("Save slot must retain the legacy-footer import window")
+    save_parameters = int(save_slot.get("parameters", "0"), 0)
     rtc_parameters = int(rtc_slot.get("parameters", "0"), 0)
     expected_rtc = {
         "required": False,
@@ -113,6 +114,12 @@ def validate_data_slots(root: Path) -> None:
         raise ValueError("RTC sidecar filename must be cloned from ROM slot 0")
     if (rtc_parameters & 0x2) != 0:
         raise ValueError("RTC sidecar must share the .sav platform-common path")
+    for name, parameters in (("Save", save_parameters), ("RTC", rtc_parameters)):
+        if parameters != 0x104:
+            raise ValueError(
+                f"{name} slot parameters must be 0x104 so every new "
+                f"nonvolatile session reloads the FPGA; found 0x{parameters:X}"
+            )
     if rtc_slot.get("extensions", [None])[0] != "rtc":
         raise ValueError("RTC sidecar's first extension must be rtc")
     print("Validated separate per-ROM RTC sidecar data slot")

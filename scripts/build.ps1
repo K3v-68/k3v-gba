@@ -141,6 +141,7 @@ try {
         'src\fpga\apf\io_bridge_peripheral.v',
         'src\fpga\apf\mf_datatable.v',
         'src\fpga\build\ap_core.qsf',
+        'src\fpga\core\core_bridge_cmd.v',
         'src\fpga\core\core_top.sv',
         'src\fpga\core\rtc_persistence.sv',
         'src\fpga\gba\gba_gpioRTCSolarGyro.vhd',
