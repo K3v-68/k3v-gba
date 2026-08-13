@@ -67,14 +67,19 @@ def budget_data() -> dict:
         "seed": 9,
         "device_totals": {"alms": 18_480, "m10ks": 308},
         "baseline": {"alms": 17_655, "m10ks": 278},
-        "limits": {"alms": 17_655, "m10ks": 282},
+        "limits": {"alms": 17_655, "m10ks": 283},
         "targets": {"alms": 16_500},
         "tradeoffs": {
             "embedded_cdc_fifos": {
                 "maximum_added_m10ks": 4,
                 "requires_alm_reduction": True,
                 "reason": "Test fixture for the checked-in ALM-to-M10K trade.",
-            }
+            },
+            "rtc_record_bank": {
+                "maximum_added_m10ks": 1,
+                "requires_alm_reduction": True,
+                "reason": "Test fixture for the RTC record-bank trade.",
+            },
         },
     }
 
@@ -95,6 +100,9 @@ def main() -> int:
         ROOT / "benchmarks/quartus-resource-budget.json"
     )
     assert checked_budget["tradeoffs"]["embedded_cdc_fifos"][
+        "requires_alm_reduction"
+    ] is True
+    assert checked_budget["tradeoffs"]["rtc_record_bank"][
         "requires_alm_reduction"
     ] is True
     with tempfile.TemporaryDirectory(prefix="k3v-resource-test-") as directory:
@@ -136,13 +144,13 @@ def main() -> int:
         assert improved_result["target_status"]["alms_met"]
 
         improved_with_ram_trade = copy.deepcopy(improved)
-        improved_with_ram_trade["usage"]["m10ks"]["used"] = 282
+        improved_with_ram_trade["usage"]["m10ks"]["used"] = 283
         assert checker.build_result(
             improved_with_ram_trade, qsf_data, budget
         )["passed"]
 
         unpaid_ram_trade = copy.deepcopy(build)
-        unpaid_ram_trade["usage"]["m10ks"]["used"] = 282
+        unpaid_ram_trade["usage"]["m10ks"]["used"] = 283
         unpaid_result = checker.build_result(unpaid_ram_trade, qsf_data, budget)
         assert not unpaid_result["passed"]
         assert any(
@@ -159,11 +167,11 @@ def main() -> int:
         )
 
         ram_regression = copy.deepcopy(build)
-        ram_regression["usage"]["m10ks"]["used"] = 283
+        ram_regression["usage"]["m10ks"]["used"] = 284
         ram_result = checker.build_result(ram_regression, qsf_data, budget)
         assert not ram_result["passed"]
         assert any(
-            "m10ks regressed to 283" in error for error in ram_result["errors"]
+            "m10ks regressed to 284" in error for error in ram_result["errors"]
         )
 
         wrong_device = copy.deepcopy(build)
@@ -179,7 +187,7 @@ def main() -> int:
         assert not checker.build_result(build, wrong_seed, budget)["passed"]
 
         malformed = copy.deepcopy(budget)
-        malformed["limits"]["m10ks"] = 283
+        malformed["limits"]["m10ks"] = 284
         budget_path.write_text(
             json.dumps(malformed, indent=2) + "\n", encoding="utf-8", newline="\n"
         )
@@ -188,7 +196,7 @@ def main() -> int:
             "limits.m10ks must equal the baseline plus declared tradeoffs",
         )
         malformed = copy.deepcopy(budget)
-        malformed["limits"]["m10ks"] = 281
+        malformed["limits"]["m10ks"] = 282
         budget_path.write_text(
             json.dumps(malformed, indent=2) + "\n", encoding="utf-8", newline="\n"
         )
@@ -285,7 +293,7 @@ def main() -> int:
         # Parse/configuration errors must still leave deterministic evidence in
         # every CI output, including the append-only GitHub job summary.
         malformed = copy.deepcopy(budget)
-        malformed["limits"]["m10ks"] = 283
+        malformed["limits"]["m10ks"] = 284
         budget_path.write_text(
             json.dumps(malformed, indent=2) + "\n", encoding="utf-8", newline="\n"
         )
