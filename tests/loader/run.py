@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile and run the asynchronous data_loader regression."""
+"""Compile and run the generic and shared APF write-ingress regressions."""
 
 from __future__ import annotations
 
@@ -39,33 +39,49 @@ def main() -> int:
     )
 
     build_dir = Path(tempfile.mkdtemp(prefix="k3v-gba-loader-test-"))
-    output = build_dir / "data_loader.vvp"
-    sources = [
-        REPO_ROOT / "tests" / "save" / "dcfifo_model.sv",
-        REPO_ROOT / "src" / "fpga" / "pocket" / "data_loader.sv",
-        TEST_DIR / "tb_data_loader.sv",
+    common_sources = [REPO_ROOT / "tests" / "save" / "dcfifo_model.sv"]
+    regressions = [
+        (
+            "tb_data_loader",
+            build_dir / "data_loader.vvp",
+            [
+                *common_sources,
+                REPO_ROOT / "src" / "fpga" / "pocket" / "data_loader.sv",
+                TEST_DIR / "tb_data_loader.sv",
+            ],
+        ),
+        (
+            "tb_apf_write_ingress",
+            build_dir / "apf_write_ingress.vvp",
+            [
+                *common_sources,
+                REPO_ROOT / "src" / "fpga" / "pocket" / "apf_write_ingress.sv",
+                TEST_DIR / "tb_apf_write_ingress.sv",
+            ],
+        ),
     ]
 
     try:
-        subprocess.run(
-            [
-                compiler,
-                "-g2012",
-                "-Wall",
-                "-s",
-                "tb_data_loader",
-                "-o",
-                str(output),
-                *(str(path) for path in sources),
-            ],
-            cwd=REPO_ROOT,
-            check=True,
-        )
-        subprocess.run([runtime, str(output)], cwd=REPO_ROOT, check=True)
+        for top, output, sources in regressions:
+            subprocess.run(
+                [
+                    compiler,
+                    "-g2012",
+                    "-Wall",
+                    "-s",
+                    top,
+                    "-o",
+                    str(output),
+                    *(str(path) for path in sources),
+                ],
+                cwd=REPO_ROOT,
+                check=True,
+            )
+            subprocess.run([runtime, str(output)], cwd=REPO_ROOT, check=True)
     finally:
         shutil.rmtree(build_dir, ignore_errors=True)
 
-    print("All data-loader regressions passed.")
+    print("All APF write-ingress regressions passed.")
     return 0
 
 

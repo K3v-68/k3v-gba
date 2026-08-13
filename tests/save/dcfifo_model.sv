@@ -1,8 +1,8 @@
 `timescale 1ns/1ps
 
-// Minimal simulation model for the Intel/Altera dcfifo primitive used by
-// data_unloader.  It intentionally models only the ports and parameters that
-// the DUT uses.  Independent monotonic read/write counters make the model
+// Minimal simulation model for the Intel/Altera dcfifo primitive used by the
+// APF data loaders and unloader. It intentionally models only the ports and
+// parameters that the DUTs use. Independent monotonic counters make the model
 // useful with unrelated clocks without pulling the Quartus simulation
 // libraries into open-source simulator runs.
 module dcfifo #(
@@ -25,7 +25,8 @@ module dcfifo #(
     input  wire                 wrclk,
     input  wire                 wrreq,
     output reg  [lpm_width-1:0] q = {lpm_width{1'b0}},
-    output wire                 rdempty
+    output wire                 rdempty,
+    output wire                 wrfull
 );
 
   reg [lpm_width-1:0] storage [0:lpm_numwords-1];
@@ -33,6 +34,7 @@ module dcfifo #(
   integer read_count = 0;
 
   assign rdempty = (write_count == read_count);
+  assign wrfull = (write_count - read_count) >= lpm_numwords;
 
   always @(posedge wrclk) begin
     if (wrreq) begin

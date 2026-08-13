@@ -347,15 +347,38 @@ assign cram1_lb_n = 1;
 //   2. save_unloader — during save writeback (core paused by OS)
 //   3. bus_out — during gameplay
 
-wire        save_loader_wr;
-wire [27:0] save_loader_addr;
-wire [15:0] save_loader_data;
-wire        save_loader_busy;
+localparam [1:0] LOADER_DEST_ROM  = 2'd1;
+localparam [1:0] LOADER_DEST_SAVE = 2'd2;
+localparam [1:0] LOADER_DEST_BIOS = 2'd3;
+
+wire        ingress_valid;
+wire [1:0]  ingress_dest;
+wire [27:0] ingress_addr;
+wire [15:0] ingress_data;
+wire        ingress_busy;
+wire        ingress_ready;
+wire        ingress_accept = ingress_valid && ingress_ready;
+
 wire        save_loader_ready;
-wire        save_loader_accept = save_loader_wr && save_loader_ready;
+wire        save_loader_wr = ingress_valid && ingress_dest == LOADER_DEST_SAVE;
+wire        save_loader_accept = ingress_accept && ingress_dest == LOADER_DEST_SAVE;
+wire [27:0] save_loader_addr = ingress_addr;
+wire [15:0] save_loader_data = ingress_data;
+wire        save_loader_busy = ingress_busy;
+wire        rom_loader_wr = ingress_accept && ingress_dest == LOADER_DEST_ROM;
+wire [27:0] rom_loader_addr = ingress_addr;
+wire [15:0] rom_loader_data = ingress_data;
+wire        bios_loader_wr = ingress_accept && ingress_dest == LOADER_DEST_BIOS;
+wire [27:0] bios_loader_addr = ingress_addr;
+wire [15:0] bios_loader_data = ingress_data;
+
 wire        save_loader_is_cart = save_loader_addr[27:24] == 4'h0;
 wire        save_loader_is_rtc  = save_loader_addr[27:24] == 4'h1;
 wire        save_loader_known_slot = save_loader_is_cart | save_loader_is_rtc;
+assign ingress_ready = ingress_dest == LOADER_DEST_SAVE ? save_loader_ready :
+                       ingress_dest == LOADER_DEST_ROM  ? 1'b1 :
+                       ingress_dest == LOADER_DEST_BIOS ? 1'b1 : 1'b0;
+
 reg         save_loader_grant;
 reg  [21:0] save_loader_grant_addr;
 reg  [15:0] save_loader_grant_data;
@@ -377,27 +400,25 @@ always @(posedge clk_sys) begin
     end
 end
 
-// Save data_loader — captures bridge writes at 0x2xxxxxxx → PSRAM die 1
-data_loader #(
-    .ADDRESS_MASK_UPPER_4   ( 4'h2 ),
-    .ADDRESS_SIZE           ( 28 ),
-    .OUTPUT_WORD_SIZE       ( 2 ),          // 16-bit output to match PSRAM width
-    .WRITE_MEM_CLOCK_DELAY  ( 20 ),         // Match PSRAM access time (~70ns)
-    .USE_WRITE_READY        ( 1 )
-) save_data_loader (
+// Shared APF write ingress. One whole normalized bridge word crosses the CDC
+// FIFO atomically, then the clk_sys dispatcher emits its A/A+2 halfwords.
+apf_write_ingress #(
+    .ROM_WRITE_DELAY  ( 20 ),
+    .SAVE_WRITE_DELAY ( 20 ),
+    .BIOS_WRITE_DELAY ( 4 )
+) write_ingress (
     .clk_74a            ( clk_74a ),
     .clk_memory         ( clk_sys ),
-
     .bridge_wr          ( bridge_wr ),
     .bridge_endian_little ( bridge_endian_little ),
     .bridge_addr        ( bridge_addr ),
     .bridge_wr_data     ( bridge_wr_data ),
-
-    .write_en           ( save_loader_wr ),
-    .write_addr         ( save_loader_addr ),
-    .write_data         ( save_loader_data ),
-    .write_ready        ( save_loader_ready ),
-    .write_busy         ( save_loader_busy )
+    .write_valid        ( ingress_valid ),
+    .write_dest         ( ingress_dest ),
+    .write_addr         ( ingress_addr ),
+    .write_data         ( ingress_data ),
+    .write_ready        ( ingress_ready ),
+    .write_busy         ( ingress_busy )
 );
 
 // Save data_unloader — serves bridge reads at 0x2xxxxxxx from PSRAM die 1
@@ -864,7 +885,7 @@ end
 
 // ---- SDRAM Controller (ROM + EWRAM + Save State staging) ----
 // Ch1: ROM reads from gba_top (OR save state staging reads during load Phase 2)
-//      ROM loading writes from data_loader (OR staging writes during load Phase 1)
+//      ROM loading writes from shared ingress (OR staging writes during load Phase 1)
 // Ch2: EWRAM reads/writes from bus_out FSM
 wire        sdram_rd_ready;
 wire [31:0] sdram_rd_data;
@@ -874,10 +895,7 @@ wire [31:0] sdram_rd_data_second;
 wire        sdram_read_req_gba;
 wire [24:0] sdram_read_addr_gba;
 
-// Write interface — from ROM data_loader (active during boot)
-wire        rom_loader_wr;
-wire [27:0] rom_loader_addr;
-wire [15:0] rom_loader_data;
+// Write interface — from shared APF ingress (active during boot)
 
 // Save state staging SDRAM signals (from save_state_controller)
 wire        ss_sdram_wr_req;
@@ -942,28 +960,6 @@ sdram_pocket sdram (
     .dram_we_n      ( dram_we_n )
 );
 
-// ROM data_loader — captures bridge writes at 0x1xxxxxxx, outputs 16-bit words
-data_loader #(
-    .ADDRESS_MASK_UPPER_4   ( 4'h1 ),
-    .ADDRESS_SIZE           ( 28 ),
-    .OUTPUT_WORD_SIZE       ( 2 ),          // 16-bit output to match SDRAM width
-    .WRITE_MEM_CLOCK_DELAY  ( 20 )          // ~20 clk_sys cycles between writes
-) rom_data_loader (
-    .clk_74a            ( clk_74a ),
-    .clk_memory         ( clk_sys ),
-
-    .bridge_wr          ( bridge_wr ),
-    .bridge_endian_little ( bridge_endian_little ),
-    .bridge_addr        ( bridge_addr ),
-    .bridge_wr_data     ( bridge_wr_data ),
-
-    .write_en           ( rom_loader_wr ),
-    .write_addr         ( rom_loader_addr ),
-    .write_data         ( rom_loader_data ),
-    .write_ready        ( 1'b1 ),
-    .write_busy         ()
-);
-
 // Track ROM size — capture last byte address written during loading.
 // MiSTer captures ioctl_addr at falling edge of cart_download; ioctl_addr
 // is incremented after each write, so it points past the last byte.
@@ -988,7 +984,7 @@ save_type_detector save_det (
     .clk             ( clk_sys ),
     .reset           ( ~pll_core_locked ),
 
-    // ROM download stream from data_loader
+    // ROM download stream from shared APF ingress
     .rom_wr          ( rom_loader_wr ),
     .rom_data        ( rom_loader_data ),
     .rom_addr        ( rom_loader_addr ),
@@ -1161,36 +1157,10 @@ wire reset_gba = ~pll_core_locked | ~dataslot_allcomplete_s | ~reset_n_s |
                  core_reset_s | ~save_mem_ready |
                  (rtc_required_sys & ~rtc_init_done);
 
-// ---- BIOS Loading via data_loader → gba_top internal BRAM ----
+// ---- BIOS Loading via shared APF ingress → gba_top internal BRAM ----
 // BIOS (16 KB) loads from data slot 4 at address 0x3xxxxxxx
-// data_loader outputs 16-bit words; 16→32 converter feeds gba_top's bios_wr port
-wire        bios_loader_wr;
-wire [27:0] bios_loader_addr;
-wire [15:0] bios_loader_data;
-
-data_loader #(
-    .ADDRESS_MASK_UPPER_4   ( 4'h3 ),      // 0x3xxxxxxx (BIOS slot)
-    .ADDRESS_SIZE           ( 28 ),
-    .OUTPUT_WORD_SIZE       ( 2 ),          // 16-bit output
-    .WRITE_MEM_CLOCK_DELAY  ( 4 )           // BRAM is fast, minimal delay
-) bios_data_loader (
-    .clk_74a            ( clk_74a ),
-    .clk_memory         ( clk_sys ),
-
-    .bridge_wr          ( bridge_wr ),
-    .bridge_endian_little ( bridge_endian_little ),
-    .bridge_addr        ( bridge_addr ),
-    .bridge_wr_data     ( bridge_wr_data ),
-
-    .write_en           ( bios_loader_wr ),
-    .write_addr         ( bios_loader_addr ),
-    .write_data         ( bios_loader_data ),
-    .write_ready        ( 1'b1 ),
-    .write_busy         ()
-);
-
 // BIOS 16→32 converter — gba_top has internal 4096×32-bit BIOS BRAM.
-// data_loader outputs 16-bit words; we buffer pairs to write 32-bit.
+// The ingress outputs 16-bit words; we buffer pairs to write 32-bit.
 reg [15:0] bios_buf;
 reg [31:0] bios_32_data;
 reg [11:0] bios_32_addr;
