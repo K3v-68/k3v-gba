@@ -147,7 +147,7 @@ try {
         'src\fpga\gba\gba_memorymux.vhd',
         'src\fpga\gba\gba_rtc_clock.vhd',
         'src\fpga\gba\gba_top.vhd',
-        'src\fpga\pocket\data_loader.sv',
+        'src\fpga\pocket\apf_write_ingress.sv',
         'src\fpga\pocket\data_unloader.sv',
         'src\fpga\pocket\psram.sv'
     )

@@ -833,7 +833,7 @@ set_global_assignment -name QIP_FILE ../core/mf_pllbase.qip
 
 # Phase 3: Memory controllers & data loaders
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/sdram_pocket.sv
-set_global_assignment -name SYSTEMVERILOG_FILE ../pocket/data_loader.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../pocket/apf_write_ingress.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../pocket/psram.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../pocket/data_unloader.sv
 
