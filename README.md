@@ -9,6 +9,28 @@
 K3V GBA is an open-source Game Boy Advance FPGA core for Analogue Pocket. The
 first public K3V release is `v0.1.0`.
 
+## Project lineage and focus
+
+K3V is a maintained derivative of
+[mincer-ray/openfpga-GBA](https://github.com/mincer-ray/openfpga-GBA) v0.6.2,
+which ports the [MiSTer GBA core](https://github.com/MiSTer-devel/GBA_MiSTer)
+to Analogue Pocket. K3V retains that upstream CPU, GPU, audio, DMA, timer and
+serial foundation; it is not a ground-up GBA implementation. Outside the
+areas listed below, general gameplay accuracy should currently be expected to
+track the upstream core closely.
+
+K3V's distinct work currently focuses on:
+
+- Reworked RTC behavior with powered-off catch-up and per-game state
+- Standard-size saves with separate `.rtc` sidecars and legacy migration
+- More robust save, PSRAM and Pocket bridge handshakes
+- Automated RTL regressions, reproducible packaging and audited multicorner timing
+
+The project's accuracy goal is evidence-driven improvement against public test
+ROMs and real GBA hardware. K3V should not be described as cycle-perfect or as
+more accurate than its upstream foundation until published results demonstrate
+the relevant engine-level differences.
+
 ## Features
 
 - RTC with powered-off catch-up and separate per-game `.rtc` state
@@ -16,7 +38,6 @@ first public K3V release is `v0.1.0`.
 - Fast-forward on Y, with Fastest and Stable rendering modes
 - Button turbo on X
 - Display filters and high-quality audio
-- Rumble
 - Partial two-player link-cable support
 
 Normal serial accessories, three/four-player link, GameCube link, wireless
@@ -64,6 +85,7 @@ On macOS, merge folders manually because Finder may replace existing folders.
 - Fastest rendering can tear because the core does not have a spare framebuffer.
 - 64 MiB GBA Video cartridges are not supported.
 - Link-cable support is limited to the implemented two-player multiplayer path.
+- Solar, gyro, tilt and cartridge-rumble peripherals are not currently implemented.
 
 ## Verification
 
@@ -99,6 +121,7 @@ On Windows PowerShell, use `./scripts/build.ps1`. A successful build creates
 
 ## Upstream projects
 
+- [mincer-ray/openfpga-GBA](https://github.com/mincer-ray/openfpga-GBA)
 - [MiSTer GBA](https://github.com/MiSTer-devel/GBA_MiSTer)
 - [Analogue openFPGA](https://www.analogue.co/developer)
 - [analogue-pocket-utils](https://github.com/agg23/analogue-pocket-utils)
