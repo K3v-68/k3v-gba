@@ -86,7 +86,13 @@ output  wire    [31:0]  datatable_q
     reg     [31:0]  bridge_rd_data_out;
     
     wire endian_little_s;
-synch_3 s01(bridge_endian_little, endian_little_s, clk);
+    synch_3 s01(
+        .i    (bridge_endian_little),
+        .o    (endian_little_s),
+        .clk  (clk),
+        .rise (),
+        .fall ()
+    );
 
 always @(*) begin
     bridge_rd_data <= endian_little_s ? {
