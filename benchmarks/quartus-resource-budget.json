@@ -15,8 +15,8 @@
     "m10ks": 278
   },
   "limits": {
-    "alms": 16667,
-    "m10ks": 282
+    "alms": 16637,
+    "m10ks": 283
   },
   "targets": {
     "alms": 16500
@@ -25,7 +25,12 @@
     "embedded_cdc_fifos": {
       "maximum_added_m10ks": 4,
       "requires_alm_reduction": true,
-      "reason": "Keep the consolidated APF write ingress and two unload CDC queues in embedded RAM rather than ALMs, while retaining 26 free M10Ks."
+      "reason": "Keep the consolidated APF write ingress and two unload CDC queues in embedded RAM rather than ALMs."
+    },
+    "rtc_record_bank": {
+      "maximum_added_m10ks": 1,
+      "requires_alm_reduction": true,
+      "reason": "Measure one M10K for the boot-only RTC record bank, accepting it only with at least 30 additional ALMs saved and 25 M10Ks left free."
     }
   }
 }
