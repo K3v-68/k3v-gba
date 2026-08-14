@@ -79,7 +79,6 @@ module save_snapshot #(
   reg [31:0] prefetched_word = 32'd0;
   reg [15:0] prefetched_word_index = 16'd0;
   reg cache_valid = 1'b0;
-  reg [15:0] last_served_word_index = 16'd0;
   reg have_served_word = 1'b0;
   reg prev_bridge_rd = 1'b0;
 
@@ -89,8 +88,11 @@ module save_snapshot #(
   wire [15:0] terminal_word_index = (word_count >> 1) - 1'b1;
   wire terminal_flush_duplicate = have_served_word && cache_valid &&
       prefetched_word_index == 16'd0 &&
-      last_served_word_index == terminal_word_index &&
       requested_word_index == terminal_word_index;
+  wire chunk_boundary_prime_duplicate = cache_valid &&
+      prefetched_word_index[7:0] == 8'd1 &&
+      requested_word_index[7:0] == 8'd0 &&
+      requested_word_index[15:8] == prefetched_word_index[15:8];
   wire [31:0] formatted_prefetched_word = bridge_endian_little ?
       prefetched_word :
       {prefetched_word[7:0], prefetched_word[15:8],
@@ -175,7 +177,6 @@ module save_snapshot #(
       prefetched_word <= 32'd0;
       prefetched_word_index <= 16'd0;
       cache_valid <= 1'b0;
-      last_served_word_index <= 16'd0;
       have_served_word <= 1'b0;
       prev_bridge_rd <= 1'b0;
       bridge_rd_data <= 32'd0;
@@ -375,12 +376,16 @@ module save_snapshot #(
             state <= ST_IDLE;
           end else if (bridge_read_start && bridge_read_cart) begin
             if ((!cache_valid || prefetched_word_index != requested_word_index) &&
-                !terminal_flush_duplicate) begin
+                !terminal_flush_duplicate &&
+                !chunk_boundary_prime_duplicate) begin
               fail_snapshot();
+            end else if (chunk_boundary_prime_duplicate) begin
+              // Pocket primes each 1 KiB data-slot chunk by repeating its
+              // first address and discarding that transaction's response.
+              // Keep the last response held and preserve the next prefetch.
             end else if (cache_valid && prefetched_word_index == requested_word_index) begin
               bridge_rd_data <= formatted_prefetched_word;
               bridge_rd_data_valid <= 1'b1;
-              last_served_word_index <= requested_word_index;
               have_served_word <= 1'b1;
               cache_valid <= 1'b0;
               if ({1'b0, requested_word_index} + 1'b1 < (word_count >> 1)) begin

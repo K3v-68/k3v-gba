@@ -12,7 +12,8 @@ module tb_pmp_save_export #(
   parameter integer SUPPRESS_CART_RESPONSE = 0,
   parameter integer EXPECT_ALL_ZERO = 0,
   parameter integer USE_SNAPSHOT = 0,
-  parameter integer INJECT_MIDDLE_DUPLICATE = 0
+  parameter integer INJECT_MIDDLE_DUPLICATE = 0,
+  parameter integer INJECT_BOUNDARY_PRIME_DUPLICATE = 0
 );
   localparam integer BODY_HALFWORDS = BODY_BYTES / 2;
   localparam integer BODY_WORDS = BODY_BYTES / 4;
@@ -486,6 +487,16 @@ module tb_pmp_save_export #(
       physical_read(32'h2000_0000 + word_index * 4, next_start,
                     physical_word, tx_start, tx_end);
       score_previous_save(word_index - 1);
+      // Pocket transfers data-slot reads in 1 KiB chunks.  The first request
+      // of every chunk after the first repeats that chunk's starting address
+      // to prime the one-word physical bridge pipeline; its response is not
+      // file payload.  Model that discarded transaction exactly.
+      if (USE_SNAPSHOT && INJECT_BOUNDARY_PRIME_DUPLICATE &&
+          word_index != 0 && (word_index & 255) == 0) begin
+        next_start = next_start + CADENCE_CYCLES;
+        physical_read(32'h2000_0000 + word_index * 4, next_start,
+                      physical_word, tx_start, tx_end);
+      end
       if (USE_SNAPSHOT && INJECT_MIDDLE_DUPLICATE && word_index == 2) begin
         next_start = next_start + CADENCE_CYCLES;
         physical_read(32'h2000_0000 + word_index * 4, next_start,

@@ -163,15 +163,31 @@ def main() -> int:
                 "tb_pmp_save_export.INJECT_MIDDLE_DUPLICATE=1",
             ),
         )
-        with ThreadPoolExecutor(max_workers=4) as executor:
+        boundary_duplicate = compile_case(
+            compiler,
+            build_dir,
+            "pmp_snapshot_1k_boundary_prime",
+            fifo_model,
+            (
+                f"tb_pmp_save_export.BODY_BYTES={args.bytes}",
+                "tb_pmp_save_export.RUN_RTC=0",
+                "tb_pmp_save_export.USE_SNAPSHOT=1",
+                "tb_pmp_save_export.INJECT_BOUNDARY_PRIME_DUPLICATE=1",
+            ),
+        )
+        with ThreadPoolExecutor(max_workers=5) as executor:
             healthy_result = executor.submit(run_case, runtime, healthy)
             starved_result = executor.submit(run_case, runtime, starved)
             snapshot_result = executor.submit(run_case, runtime, snapshot)
             duplicate_result = executor.submit(run_case, runtime, duplicate)
+            boundary_duplicate_result = executor.submit(
+                run_case, runtime, boundary_duplicate
+            )
             healthy_result.result()
             starved_result.result()
             snapshot_result.result()
             duplicate_result.result()
+            boundary_duplicate_result.result()
     finally:
         if args.keep_build:
             print(f"Kept build directory: {build_dir}")
