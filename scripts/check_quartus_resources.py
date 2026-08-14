@@ -266,7 +266,7 @@ def experimental_branch_acceptable(result: dict, budget: dict) -> bool:
     )
     return (
         result["errors"] == [expected_error]
-        and usage["alms"]["used"] <= budget["baseline"]["alms"]
+        and usage["alms"]["used"] < budget["baseline"]["alms"]
         and usage["m10ks"]["used"] <= budget["limits"]["m10ks"]
     )
 

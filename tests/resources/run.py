@@ -125,6 +125,17 @@ def main() -> int:
     assert checker.experimental_branch_acceptable(
         experimental_result, checked_budget
     )
+    at_baseline_build = copy.deepcopy(experimental_build)
+    at_baseline_build["usage"]["alms"]["used"] = 17_655
+    at_baseline_build["usage"]["m10ks"]["used"] = 278
+    at_baseline_result = checker.build_result(
+        at_baseline_build,
+        {"device": "5CEBA4F23C8", "seed": 9},
+        checked_budget,
+    )
+    assert not checker.experimental_branch_acceptable(
+        at_baseline_result, checked_budget
+    )
     above_baseline_build = copy.deepcopy(experimental_build)
     above_baseline_build["usage"]["alms"]["used"] = 17_656
     above_baseline_result = checker.build_result(
