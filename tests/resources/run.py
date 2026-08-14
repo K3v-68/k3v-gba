@@ -64,7 +64,7 @@ def budget_data() -> dict:
         "release_commit": "2892d34bb3db94c4a4ae493f48e2180e10f0983a",
         "device": "5CEBA4F23C8",
         "quartus": "21.1.1 Build 850",
-        "seed": 4,
+        "seed": 3,
         "device_totals": {"alms": 18_480, "m10ks": 308},
         "baseline": {"alms": 17_655, "m10ks": 278},
         "limits": {"alms": 17_655, "m10ks": 281},
@@ -118,7 +118,7 @@ def main() -> int:
     }
     experimental_result = checker.build_result(
         experimental_build,
-        {"device": "5CEBA4F23C8", "seed": 4},
+        {"device": "5CEBA4F23C8", "seed": 3},
         checked_budget,
     )
     assert experimental_result["passed"]
@@ -130,7 +130,7 @@ def main() -> int:
     at_baseline_build["usage"]["m10ks"]["used"] = 278
     at_baseline_result = checker.build_result(
         at_baseline_build,
-        {"device": "5CEBA4F23C8", "seed": 4},
+        {"device": "5CEBA4F23C8", "seed": 3},
         checked_budget,
     )
     assert checker.experimental_branch_acceptable(
@@ -140,7 +140,7 @@ def main() -> int:
     above_baseline_build["usage"]["alms"]["used"] = 17_656
     above_baseline_result = checker.build_result(
         above_baseline_build,
-        {"device": "5CEBA4F23C8", "seed": 4},
+        {"device": "5CEBA4F23C8", "seed": 3},
         checked_budget,
     )
     assert not checker.experimental_branch_acceptable(
@@ -158,7 +158,7 @@ def main() -> int:
         summary.write_text(summary_text(), encoding="utf-8", newline="\n")
         qsf.write_text(
             "set_global_assignment -name DEVICE 5CEBA4F23C8\n"
-            "set_global_assignment -name SEED 4\n",
+            "set_global_assignment -name SEED 3\n",
             encoding="utf-8",
             newline="\n",
         )
