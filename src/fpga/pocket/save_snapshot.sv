@@ -58,6 +58,7 @@ module save_snapshot #(
   localparam [4:0] ST_SOURCE_RELEASE = 5'd14;
   localparam [4:0] ST_SOURCE_ACCEPT = 5'd15;
   localparam [4:0] ST_ABORT_DRAIN = 5'd16;
+  localparam [4:0] ST_SOURCE_CAPTURE = 5'd17;
   localparam integer WAIT_COUNTER_WIDTH =
       SRAM_WAIT_CYCLES <= 1 ? 1 : $clog2(SRAM_WAIT_CYCLES);
   localparam integer TIMEOUT_COUNTER_WIDTH =
@@ -73,6 +74,7 @@ module save_snapshot #(
   reg [TIMEOUT_COUNTER_WIDTH-1:0] timeout_count = 0;
   reg sram_drive = 1'b0;
   reg [15:0] sram_data_out = 16'd0;
+  reg [15:0] source_halfword = 16'd0;
   reg [15:0] prefetch_low = 16'd0;
   reg [31:0] prefetched_word = 32'd0;
   reg [15:0] prefetched_word_index = 16'd0;
@@ -157,6 +159,7 @@ module save_snapshot #(
       sram_a <= 17'd0;
       sram_drive <= 1'b0;
       sram_data_out <= 16'd0;
+      source_halfword <= 16'd0;
       sram_oe_n <= 1'b1;
       sram_we_n <= 1'b1;
       sram_ub_n <= 1'b1;
@@ -236,9 +239,19 @@ module save_snapshot #(
           if (source_data_valid) begin
             source_read <= 1'b0;
             timeout_count <= 0;
-            source_crc <= crc32_halfword(source_crc, source_data);
+            source_halfword <= source_data;
+            state <= ST_SOURCE_CAPTURE;
+          end else if (timeout_count >= SOURCE_TIMEOUT_CYCLES - 1) begin
+            fail_snapshot();
+          end else begin
+            timeout_count <= timeout_count + 1'b1;
+          end
+        end
+
+        ST_SOURCE_CAPTURE: begin
+            source_crc <= crc32_halfword(source_crc, source_halfword);
             sram_a <= copy_index;
-            sram_data_out <= source_data;
+            sram_data_out <= source_halfword;
             sram_drive <= 1'b1;
             sram_oe_n <= 1'b1;
             sram_we_n <= 1'b0;
@@ -246,11 +259,6 @@ module save_snapshot #(
             sram_lb_n <= 1'b0;
             wait_count <= 0;
             state <= ST_SRAM_WRITE;
-          end else if (timeout_count >= SOURCE_TIMEOUT_CYCLES - 1) begin
-            fail_snapshot();
-          end else begin
-            timeout_count <= timeout_count + 1'b1;
-          end
         end
 
         ST_SRAM_WRITE: begin

@@ -84,9 +84,20 @@ jobs:
             ap_core.sta.cram0_output_setup.rpt \
             ap_core.sta.cram0_input_setup.rpt \
             ap_core.sta.cram0_output_hold.rpt \
-            ap_core.sta.cram0_input_hold.rpt; do
+            ap_core.sta.cram0_input_hold.rpt \
+            ap_core.sta.sram_output_setup.rpt \
+            ap_core.sta.sram_input_setup.rpt \
+            ap_core.sta.sram_output_hold.rpt \
+            ap_core.sta.sram_input_hold.rpt \
+            ap_core.sta.snapshot_cdc_net_delay.rpt; do
             test -s "build_output/reports/$report"
           done
+          scripts/check_sta_path_reports.py \
+            build_output/reports/ap_core.sta.sram_output_setup.rpt \
+            build_output/reports/ap_core.sta.sram_input_setup.rpt \
+            build_output/reports/ap_core.sta.sram_output_hold.rpt \
+            build_output/reports/ap_core.sta.sram_input_hold.rpt \
+            build_output/reports/ap_core.sta.snapshot_cdc_net_delay.rpt
 
       - name: Reverse bitstream
         run: python3 scripts/reverse_bitstream.py src/fpga/build/output_files/ap_core.rbf pkg/Cores/K3V.GBA/bitstream.rbf_r

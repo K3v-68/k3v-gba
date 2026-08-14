@@ -115,10 +115,10 @@ report_timing -hold -npaths 40 -detail full_path \
   -from $sram_input_ports \
   -file $out_sram_in_hold
 
-set snapshot_addr_source_regs [get_registers -nowarn {*|snapshot_inst|source_addr[*]}]
+set snapshot_addr_source_regs [get_registers -nowarn {*|cart_save_snapshot|source_addr[*]}]
 set snapshot_addr_destination_regs [get_registers -nowarn {*|snapshot_source_addr_sys[*]}]
 set snapshot_data_source_regs [get_registers -nowarn {*|snapshot_source_data_sys[*]}]
-set snapshot_data_destination_regs [get_registers -nowarn {*|snapshot_inst|source_halfword[*]}]
+set snapshot_data_destination_regs [get_registers -nowarn {*|cart_save_snapshot|source_halfword[*]}]
 
 foreach {label collection} [list \
     "snapshot address source" $snapshot_addr_source_regs \

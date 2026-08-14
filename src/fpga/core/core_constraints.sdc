@@ -138,10 +138,10 @@ set_min_delay 0.000 -from $sram_input_ports -to $sram_clk_74a_clock
 # asynchronously grouped clocks and bounds the direct bundled nets to one
 # destination-clock period. The custom STA script requires every endpoint
 # collection to resolve and archives TimeQuest's dedicated net-delay report.
-set snapshot_addr_source_regs [get_registers -nowarn {*|snapshot_inst|source_addr[*]}]
+set snapshot_addr_source_regs [get_registers -nowarn {*|cart_save_snapshot|source_addr[*]}]
 set snapshot_addr_destination_regs [get_registers -nowarn {*|snapshot_source_addr_sys[*]}]
 set snapshot_data_source_regs [get_registers -nowarn {*|snapshot_source_data_sys[*]}]
-set snapshot_data_destination_regs [get_registers -nowarn {*|snapshot_inst|source_halfword[*]}]
+set snapshot_data_destination_regs [get_registers -nowarn {*|cart_save_snapshot|source_halfword[*]}]
 
 if {[get_collection_size $snapshot_addr_source_regs] > 0 &&
     [get_collection_size $snapshot_addr_destination_regs] > 0} {

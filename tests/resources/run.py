@@ -105,6 +105,36 @@ def main() -> int:
     assert checked_budget["tradeoffs"]["rtc_record_bank"][
         "requires_alm_reduction"
     ] is True
+    experimental_build = {
+        "fitter_status": "Successful - Fri Aug 14 04:24:17 2026",
+        "quartus": "21.1.1 Build 850 06/23/2022 SJ Lite Edition",
+        "device": "5CEBA4F23C8",
+        "usage": {
+            "alms": {"used": 17_601, "total": 18_480},
+            "m10ks": {"used": 281, "total": 308},
+            "block_memory_bits": {"used": 2_057_240, "total": 3_153_920},
+            "dsp_blocks": {"used": 26, "total": 66},
+        },
+    }
+    experimental_result = checker.build_result(
+        experimental_build,
+        {"device": "5CEBA4F23C8", "seed": 9},
+        checked_budget,
+    )
+    assert not experimental_result["passed"]
+    assert checker.experimental_branch_acceptable(
+        experimental_result, checked_budget
+    )
+    above_baseline_build = copy.deepcopy(experimental_build)
+    above_baseline_build["usage"]["alms"]["used"] = 17_656
+    above_baseline_result = checker.build_result(
+        above_baseline_build,
+        {"device": "5CEBA4F23C8", "seed": 9},
+        checked_budget,
+    )
+    assert not checker.experimental_branch_acceptable(
+        above_baseline_result, checked_budget
+    )
     with tempfile.TemporaryDirectory(prefix="k3v-resource-test-") as directory:
         temp = Path(directory)
         summary = temp / "ap_core.fit.summary"
@@ -289,6 +319,38 @@ def main() -> int:
         assert second.returncode == 0, (second.stdout, second.stderr)
         assert json_out.read_bytes() == first_json
         assert markdown_out.read_bytes() == first_markdown
+
+        # Branch hardware-test builds may package an image that exceeds the
+        # optimization target only when it remains below the fielded baseline.
+        budget_path.write_text(
+            json.dumps(checked_budget, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        summary.write_text(
+            summary_text(alms=17_601, m10ks=281),
+            encoding="utf-8",
+            newline="\n",
+        )
+        experimental_command = [*command, "--allow-experimental-branch"]
+        strict = subprocess.run(command, check=False, capture_output=True, text=True)
+        assert strict.returncode == 1, (strict.stdout, strict.stderr)
+        experimental = subprocess.run(
+            experimental_command, check=False, capture_output=True, text=True
+        )
+        assert experimental.returncode == 0, (experimental.stdout, experimental.stderr)
+        experimental_document = json.loads(json_out.read_text(encoding="utf-8"))
+        assert experimental_document["passed"] is False
+        assert experimental_document["experimental_branch_accepted"] is True
+        assert "EXPERIMENTAL branch package accepted" in markdown_out.read_text(
+            encoding="utf-8"
+        )
+
+        # Restore the generic passing fixture for malformed-input coverage.
+        budget_path.write_text(
+            json.dumps(budget, indent=2) + "\n", encoding="utf-8", newline="\n"
+        )
+        summary.write_text(summary_text(), encoding="utf-8", newline="\n")
 
         # Parse/configuration errors must still leave deterministic evidence in
         # every CI output, including the append-only GitHub job summary.

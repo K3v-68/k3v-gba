@@ -41,6 +41,28 @@ def verify_production_contract() -> None:
     unloader_source = (
         REPO_ROOT / "src" / "fpga" / "pocket" / "data_unloader.sv"
     ).read_text(encoding="utf-8")
+    snapshot_source = (
+        REPO_ROOT / "src" / "fpga" / "pocket" / "save_snapshot.sv"
+    ).read_text(encoding="utf-8")
+    constraints_source = (
+        REPO_ROOT / "src" / "fpga" / "core" / "core_constraints.sdc"
+    ).read_text(encoding="utf-8")
+
+    require_pattern(
+        snapshot_source,
+        r"reg\s+\[15:0\]\s+source_halfword.*?source_halfword\s*<=\s*source_data",
+        "bundled source data is captured before CRC/SRAM consumption",
+    )
+    require_pattern(
+        constraints_source,
+        r"get_registers\s+-nowarn\s+\{\*\|cart_save_snapshot\|source_addr\[\*\]\}",
+        "fitted snapshot source-address register collection",
+    )
+    require_pattern(
+        constraints_source,
+        r"get_registers\s+-nowarn\s+\{\*\|cart_save_snapshot\|source_halfword\[\*\]\}",
+        "fitted snapshot response-data capture collection",
+    )
 
     require_pattern(
         command_source,

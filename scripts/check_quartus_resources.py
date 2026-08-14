@@ -250,6 +250,27 @@ def evaluate(build: dict, qsf: dict, budget: dict) -> list[str]:
     return errors
 
 
+def experimental_branch_acceptable(result: dict, budget: dict) -> bool:
+    """Allow hardware-test packaging below the recorded release baseline.
+
+    This does not change result['passed'] or the strict release policy. It only
+    accepts the single ALM-limit failure on branch builds when all other checked
+    resource constraints pass and ALM use remains below the fielded baseline.
+    """
+    if result["passed"]:
+        return True
+    usage = result["usage"]
+    expected_error = (
+        f"alms regressed to {usage['alms']['used']}; budget allows at most "
+        f"{budget['limits']['alms']}"
+    )
+    return (
+        result["errors"] == [expected_error]
+        and usage["alms"]["used"] <= budget["baseline"]["alms"]
+        and usage["m10ks"]["used"] <= budget["limits"]["m10ks"]
+    )
+
+
 def build_result(build: dict, qsf: dict, budget: dict) -> dict:
     usage = build["usage"]
     result = {
@@ -376,16 +397,37 @@ def main() -> int:
     parser.add_argument("--json-out", type=Path)
     parser.add_argument("--markdown-out", type=Path)
     parser.add_argument("--github-summary", type=Path)
+    parser.add_argument(
+        "--allow-experimental-branch",
+        action="store_true",
+        help=(
+            "return success for a non-release hardware-test build when its only "
+            "failure is the ALM optimization limit and it remains below baseline"
+        ),
+    )
     args = parser.parse_args()
 
     try:
         build = parse_fit_summary(args.summary)
         qsf = parse_qsf(args.qsf)
-        result = build_result(build, qsf, load_budget(args.budget))
+        budget = load_budget(args.budget)
+        result = build_result(build, qsf, budget)
+        experimental_accepted = (
+            args.allow_experimental_branch
+            and experimental_branch_acceptable(result, budget)
+        )
+        if args.allow_experimental_branch:
+            result["experimental_branch_accepted"] = experimental_accepted
         report = markdown(result)
+        if experimental_accepted and not result["passed"]:
+            report += (
+                "\n> **EXPERIMENTAL branch package accepted:** ALM use exceeds "
+                "the optimization limit but remains below the recorded fielded "
+                "baseline. This does not satisfy the release resource gate.\n"
+            )
         print(report, end="")
         write_outputs(args, result, report)
-        return 0 if result["passed"] else 1
+        return 0 if result["passed"] or experimental_accepted else 1
     except (OSError, ValueError, TypeError, KeyError, ZeroDivisionError) as error:
         result = failure_result(error)
         report = failure_markdown(result)
