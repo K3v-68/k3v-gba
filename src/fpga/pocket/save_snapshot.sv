@@ -90,6 +90,7 @@ module save_snapshot #(
       prefetched_word_index == 16'd0 &&
       requested_word_index == terminal_word_index;
   wire chunk_boundary_prime_duplicate = cache_valid &&
+      prefetched_word_index[15:8] != 8'd0 &&
       prefetched_word_index[7:0] == 8'd1 &&
       requested_word_index[7:0] == 8'd0 &&
       requested_word_index[15:8] == prefetched_word_index[15:8];
