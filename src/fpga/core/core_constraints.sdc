@@ -129,6 +129,32 @@ set_min_delay 0.000 -from $sram_clk_74a_clock -to $sram_output_ports
 set_max_delay $SRAM_CLK_74A_PERIOD_NS -from $sram_input_ports -to $sram_clk_74a_clock
 set_min_delay 0.000 -from $sram_input_ports -to $sram_clk_74a_clock
 
+# ============================================================
+# Snapshot bundled-data CDC constraints
+# ============================================================
+# The request/accept and data-valid qualifiers cross through three-stage
+# synchronizers. Address and response data are held stable until the matching
+# return-to-zero handshake completes. set_net_delay remains active across
+# asynchronously grouped clocks and bounds the direct bundled nets to one
+# destination-clock period. The custom STA script requires every endpoint
+# collection to resolve and archives TimeQuest's dedicated net-delay report.
+set snapshot_addr_source_regs [get_registers -nowarn {*|snapshot_inst|source_addr[*]}]
+set snapshot_addr_destination_regs [get_registers -nowarn {*|snapshot_source_addr_sys[*]}]
+set snapshot_data_source_regs [get_registers -nowarn {*|snapshot_source_data_sys[*]}]
+set snapshot_data_destination_regs [get_registers -nowarn {*|snapshot_inst|source_halfword[*]}]
+
+if {[get_collection_size $snapshot_addr_source_regs] > 0 &&
+    [get_collection_size $snapshot_addr_destination_regs] > 0} {
+  set_net_delay -max $CRAM0_CLK_SYS_PERIOD_NS \
+    -from $snapshot_addr_source_regs -to $snapshot_addr_destination_regs
+}
+
+if {[get_collection_size $snapshot_data_source_regs] > 0 &&
+    [get_collection_size $snapshot_data_destination_regs] > 0} {
+  set_net_delay -max $SRAM_CLK_74A_PERIOD_NS \
+    -from $snapshot_data_source_regs -to $snapshot_data_destination_regs
+}
+
 # Non-SDRAM top-level I/O timing coverage:
 # These APF/platform interfaces are not signed off with external setup/hold
 # delays here. They are either protocol/wait-state timed, source-synchronous

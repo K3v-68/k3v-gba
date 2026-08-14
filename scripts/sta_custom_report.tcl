@@ -115,6 +115,26 @@ report_timing -hold -npaths 40 -detail full_path \
   -from $sram_input_ports \
   -file $out_sram_in_hold
 
+set snapshot_addr_source_regs [get_registers -nowarn {*|snapshot_inst|source_addr[*]}]
+set snapshot_addr_destination_regs [get_registers -nowarn {*|snapshot_source_addr_sys[*]}]
+set snapshot_data_source_regs [get_registers -nowarn {*|snapshot_source_data_sys[*]}]
+set snapshot_data_destination_regs [get_registers -nowarn {*|snapshot_inst|source_halfword[*]}]
+
+foreach {label collection} [list \
+    "snapshot address source" $snapshot_addr_source_regs \
+    "snapshot address destination" $snapshot_addr_destination_regs \
+    "snapshot data source" $snapshot_data_source_regs \
+    "snapshot data destination" $snapshot_data_destination_regs \
+] {
+    if {[get_collection_size $collection] == 0} {
+        error "Required bundled CDC endpoint collection is empty: $label"
+    }
+}
+
+post_message "Generating snapshot bundled CDC net-delay report..."
+set out_snapshot_cdc_net_delay "$report_dir/ap_core.sta.snapshot_cdc_net_delay.rpt"
+report_net_delay -nworst 40 -file $out_snapshot_cdc_net_delay
+
 post_message "Generating clock Fmax summary..."
 report_clock_fmax_summary -file $out_sum
 
@@ -126,6 +146,7 @@ foreach f [list \
     $out_cram0_out_hold $out_cram0_in_hold \
     $out_sram_out_setup $out_sram_in_setup \
     $out_sram_out_hold $out_sram_in_hold \
+    $out_snapshot_cdc_net_delay \
 ] {
     if {[file exists $f]} {
         post_message "  OK: $f ([file size $f] bytes)"

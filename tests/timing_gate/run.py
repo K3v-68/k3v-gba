@@ -11,6 +11,7 @@ from pathlib import Path
 TEST_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TEST_DIR.parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "print_timing.sh"
+PATH_REPORT_SCRIPT = REPO_ROOT / "scripts" / "check_sta_path_reports.py"
 
 
 def summary(setup: float, hold: float) -> str:
@@ -38,6 +39,20 @@ def run_case(setup: float, hold: float) -> subprocess.CompletedProcess[str]:
         )
 
 
+def run_path_report(summary_line: str) -> subprocess.CompletedProcess[str]:
+    with tempfile.NamedTemporaryFile("w", suffix=".sta.rpt") as fixture:
+        fixture.write(summary_line + "\n")
+        fixture.flush()
+        return subprocess.run(
+            [str(PATH_REPORT_SCRIPT), fixture.name],
+            cwd=REPO_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+
+
 def main() -> int:
     positive = run_case(0.250, 0.125)
     if positive.returncode != 0 or "Timing met." not in positive.stdout:
@@ -51,7 +66,30 @@ def main() -> int:
     if hold_failure.returncode == 0 or "Negative hold slack" not in hold_failure.stdout:
         raise RuntimeError(f"negative hold was not rejected:\n{hold_failure.stdout}")
 
-    print("TIMING RELEASE GATE PASS positive=accepted negative_setup=rejected negative_hold=rejected")
+    path_positive = run_path_report(
+        "Report Timing: Found 16 paths. Worst case slack is 0.125"
+    )
+    if path_positive.returncode != 0:
+        raise RuntimeError(f"valid custom path report was rejected:\n{path_positive.stdout}")
+
+    path_zero = run_path_report(
+        "Report Timing: Found 0 paths. Worst case slack is 0.000"
+    )
+    if path_zero.returncode == 0 or "zero paths" not in path_zero.stdout:
+        raise RuntimeError(f"zero-path custom report was not rejected:\n{path_zero.stdout}")
+
+    path_negative = run_path_report(
+        "Report Timing: Found 16 paths. Worst case slack is -0.125"
+    )
+    if path_negative.returncode == 0 or "negative slack" not in path_negative.stdout:
+        raise RuntimeError(
+            f"negative custom report slack was not rejected:\n{path_negative.stdout}"
+        )
+
+    print(
+        "TIMING RELEASE GATE PASS positive=accepted negative_setup=rejected "
+        "negative_hold=rejected zero_path=rejected custom_negative=rejected"
+    )
     return 0
 
 
