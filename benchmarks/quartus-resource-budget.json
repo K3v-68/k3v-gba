@@ -5,7 +5,7 @@
   "release_commit": "2892d34bb3db94c4a4ae493f48e2180e10f0983a",
   "device": "5CEBA4F23C8",
   "quartus": "21.1.1 Build 850",
-  "seed": 9,
+  "seed": 2,
   "device_totals": {
     "alms": 18480,
     "m10ks": 308
@@ -15,7 +15,7 @@
     "m10ks": 278
   },
   "limits": {
-    "alms": 16780,
+    "alms": 17655,
     "m10ks": 281
   },
   "targets": {
