@@ -102,7 +102,11 @@ for report in \
   ap_core.sta.cram0_output_setup.rpt \
   ap_core.sta.cram0_input_setup.rpt \
   ap_core.sta.cram0_output_hold.rpt \
-  ap_core.sta.cram0_input_hold.rpt; do
+  ap_core.sta.cram0_input_hold.rpt \
+  ap_core.sta.sram_output_setup.rpt \
+  ap_core.sta.sram_input_setup.rpt \
+  ap_core.sta.sram_output_hold.rpt \
+  ap_core.sta.sram_input_hold.rpt; do
   if [[ ! -s "$PROJECT_DIR/build_output/reports/$report" ]]; then
     rm -f -- "$RBF" "$RBF_R"
     echo "Required custom STA report missing or empty: $report" >&2

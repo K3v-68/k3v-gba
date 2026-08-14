@@ -29,6 +29,9 @@
 module data_unloader #(
     // Upper 4 bits of address
     parameter ADDRESS_MASK_UPPER_4 = 0,
+    // Optional next nibble. -1 preserves the historical upper-nibble-only
+    // behavior; a concrete value isolates adjacent APF data slots.
+    parameter integer ADDRESS_MASK_SECOND_4 = -1,
     parameter ADDRESS_SIZE = 28,
 
     // Number of memory clock cycles it takes for a read to complete
@@ -134,7 +137,9 @@ module data_unloader #(
   localparam ADDR_START = 1;
   localparam ADDR_REQ = 2;
   wire bridge_read_start = ~prev_bridge_rd && bridge_rd &&
-                           bridge_addr[31:28] == ADDRESS_MASK_UPPER_4;
+                           bridge_addr[31:28] == ADDRESS_MASK_UPPER_4 &&
+                           (ADDRESS_MASK_SECOND_4 < 0 ||
+                            bridge_addr[27:24] == ADDRESS_MASK_SECOND_4[3:0]);
 
   // Receive APF read addresses and buffer them into the memory clock domain
   always @(posedge clk_74a) begin

@@ -88,6 +88,33 @@ report_timing -hold -npaths 40 -detail full_path \
   -from $cram0_input_ports \
   -file $out_cram0_in_hold
 
+set sram_output_ports [get_ports {sram_a[*] sram_dq[*] sram_oe_n sram_we_n sram_ub_n sram_lb_n}]
+set sram_input_ports [get_ports {sram_dq[*]}]
+
+post_message "Generating SRAM snapshot output setup/max path report..."
+set out_sram_out_setup "$report_dir/ap_core.sta.sram_output_setup.rpt"
+report_timing -setup -npaths 40 -detail full_path \
+  -to $sram_output_ports \
+  -file $out_sram_out_setup
+
+post_message "Generating SRAM snapshot input setup/max path report..."
+set out_sram_in_setup "$report_dir/ap_core.sta.sram_input_setup.rpt"
+report_timing -setup -npaths 40 -detail full_path \
+  -from $sram_input_ports \
+  -file $out_sram_in_setup
+
+post_message "Generating SRAM snapshot output hold/min path report..."
+set out_sram_out_hold "$report_dir/ap_core.sta.sram_output_hold.rpt"
+report_timing -hold -npaths 40 -detail full_path \
+  -to $sram_output_ports \
+  -file $out_sram_out_hold
+
+post_message "Generating SRAM snapshot input hold/min path report..."
+set out_sram_in_hold "$report_dir/ap_core.sta.sram_input_hold.rpt"
+report_timing -hold -npaths 40 -detail full_path \
+  -from $sram_input_ports \
+  -file $out_sram_in_hold
+
 post_message "Generating clock Fmax summary..."
 report_clock_fmax_summary -file $out_sum
 
@@ -97,6 +124,8 @@ foreach f [list \
     $out_sdram_wr $out_sdram_rd \
     $out_cram0_out_setup $out_cram0_in_setup \
     $out_cram0_out_hold $out_cram0_in_hold \
+    $out_sram_out_setup $out_sram_in_setup \
+    $out_sram_out_hold $out_sram_in_hold \
 ] {
     if {[file exists $f]} {
         post_message "  OK: $f ([file size $f] bytes)"

@@ -10,10 +10,13 @@ module tb_pmp_save_export #(
   parameter integer RUN_RTC = 1,
   parameter integer VERBOSE = 0,
   parameter integer SUPPRESS_CART_RESPONSE = 0,
-  parameter integer EXPECT_ALL_ZERO = 0
+  parameter integer EXPECT_ALL_ZERO = 0,
+  parameter integer USE_SNAPSHOT = 0,
+  parameter integer INJECT_MIDDLE_DUPLICATE = 0
 );
   localparam integer BODY_HALFWORDS = BODY_BYTES / 2;
   localparam integer BODY_WORDS = BODY_BYTES / 4;
+  localparam [16:0] BODY_HALFWORDS_17 = BODY_HALFWORDS;
 
   reg clk_74a = 1'b0;
   reg clk_sys = 1'b0;
@@ -68,8 +71,18 @@ module tb_pmp_save_export #(
       .phy_spiss(phy_spiss)
   );
 
-  wire [31:0] save_read_bridge_data;
-  wire save_read_bridge_valid;
+  wire [31:0] legacy_read_bridge_data;
+  wire legacy_read_bridge_valid;
+  wire [31:0] snapshot_bridge_data;
+  wire snapshot_bridge_valid;
+  wire snapshot_ready;
+  wire snapshot_failed;
+  wire [31:0] save_read_bridge_data =
+      USE_SNAPSHOT && bridge_addr[27:24] == 4'h0 ?
+      snapshot_bridge_data : legacy_read_bridge_data;
+  wire save_read_bridge_valid =
+      USE_SNAPSHOT && bridge_addr[27:24] == 4'h0 ?
+      snapshot_bridge_valid : legacy_read_bridge_valid;
   wire save_unloader_rd;
   wire [27:0] save_unloader_addr;
   reg [15:0] save_unloader_data = 16'd0;
@@ -87,8 +100,8 @@ module tb_pmp_save_export #(
       .bridge_rd(bridge_rd),
       .bridge_endian_little(endian_little),
       .bridge_addr(bridge_addr),
-      .bridge_rd_data(save_read_bridge_data),
-      .bridge_rd_data_valid(save_read_bridge_valid),
+      .bridge_rd_data(legacy_read_bridge_data),
+      .bridge_rd_data_valid(legacy_read_bridge_valid),
       .read_en(save_unloader_rd),
       .read_addr(save_unloader_addr),
       .read_ready(save_unloader_ready),
@@ -155,6 +168,77 @@ module tb_pmp_save_export #(
     for (init_index = 0; init_index < BODY_HALFWORDS; init_index = init_index + 1)
       memory[init_index] = fixture_halfword(init_index);
   end
+
+  wire snapshot_source_read;
+  wire [16:0] snapshot_source_addr;
+  reg [15:0] snapshot_source_data = 16'd0;
+  reg snapshot_source_data_valid = 1'b0;
+  reg snapshot_source_seen = 1'b0;
+  integer snapshot_source_delay = -1;
+  wire [16:0] snapshot_sram_a;
+  tri [15:0] snapshot_sram_dq;
+  wire snapshot_sram_oe_n;
+  wire snapshot_sram_we_n;
+  wire snapshot_sram_ub_n;
+  wire snapshot_sram_lb_n;
+  reg [15:0] snapshot_sram [0:BODY_HALFWORDS-1];
+
+  assign snapshot_sram_dq = !snapshot_sram_oe_n ?
+      snapshot_sram[snapshot_sram_a] : 16'hzzzz;
+
+  always @(posedge clk_74a) begin
+    if (!snapshot_sram_we_n) begin
+      if (!snapshot_sram_lb_n)
+        snapshot_sram[snapshot_sram_a][7:0] <= snapshot_sram_dq[7:0];
+      if (!snapshot_sram_ub_n)
+        snapshot_sram[snapshot_sram_a][15:8] <= snapshot_sram_dq[15:8];
+    end
+
+    if (!snapshot_source_read) begin
+      snapshot_source_data_valid <= 1'b0;
+      snapshot_source_seen <= 1'b0;
+      snapshot_source_delay <= -1;
+    end else if (!snapshot_source_seen) begin
+      snapshot_source_seen <= 1'b1;
+      snapshot_source_delay <= 3;
+    end else if (!snapshot_source_data_valid && snapshot_source_delay > 0) begin
+      snapshot_source_delay <= snapshot_source_delay - 1;
+    end else if (!snapshot_source_data_valid && snapshot_source_delay == 0) begin
+      snapshot_source_data <= fixture_halfword(snapshot_source_addr);
+      snapshot_source_data_valid <= 1'b1;
+      snapshot_source_delay <= -1;
+    end
+  end
+
+  save_snapshot #(
+      .SRAM_WAIT_CYCLES(8),
+      .SOURCE_TIMEOUT_CYCLES(1024)
+  ) snapshot (
+      .clk(clk_74a),
+      .reset_n(reset_n),
+      .start(USE_SNAPSHOT != 0),
+      .word_count(BODY_HALFWORDS_17),
+      .busy(),
+      .ready(snapshot_ready),
+      .failed(snapshot_failed),
+      .source_read(snapshot_source_read),
+      .source_addr(snapshot_source_addr),
+      .source_accepted(snapshot_source_seen),
+      .source_idle(!snapshot_source_seen && !snapshot_source_data_valid),
+      .source_data(snapshot_source_data),
+      .source_data_valid(snapshot_source_data_valid),
+      .bridge_endian_little(endian_little),
+      .bridge_addr(bridge_addr),
+      .bridge_rd(bridge_rd),
+      .bridge_rd_data(snapshot_bridge_data),
+      .bridge_rd_data_valid(snapshot_bridge_valid),
+      .sram_a(snapshot_sram_a),
+      .sram_dq(snapshot_sram_dq),
+      .sram_oe_n(snapshot_sram_oe_n),
+      .sram_we_n(snapshot_sram_we_n),
+      .sram_ub_n(snapshot_sram_ub_n),
+      .sram_lb_n(snapshot_sram_lb_n)
+  );
 
   // Production PSRAM controller plus behavioral external CRAM storage.
   wire psram_read_avail;
@@ -377,6 +461,12 @@ module tb_pmp_save_export #(
     repeat (12) @(negedge clk_74a);
     reset_n = 1'b1;
     repeat (12) @(negedge clk_74a);
+    if (USE_SNAPSHOT) begin
+      wait (snapshot_ready || snapshot_failed);
+      if (snapshot_failed)
+        $fatal(1, "snapshot failed before physical stream");
+      repeat (4) @(negedge clk_74a);
+    end
 
     next_start = clk74_cycle + 4;
 
@@ -396,6 +486,16 @@ module tb_pmp_save_export #(
       physical_read(32'h2000_0000 + word_index * 4, next_start,
                     physical_word, tx_start, tx_end);
       score_previous_save(word_index - 1);
+      if (USE_SNAPSHOT && INJECT_MIDDLE_DUPLICATE && word_index == 2) begin
+        next_start = next_start + CADENCE_CYCLES;
+        physical_read(32'h2000_0000 + word_index * 4, next_start,
+                      physical_word, tx_start, tx_end);
+        repeat (4) @(posedge clk_74a);
+        if (!snapshot_failed)
+          $fatal(1, "physical middle duplicate did not fail snapshot");
+        $display("PMP SNAPSHOT MIDDLE-DUPLICATE FAILURE PASS word=%0d", word_index);
+        $finish;
+      end
       if ((tx_end - tx_start) > max_transaction_cycles)
         max_transaction_cycles = tx_end - tx_start;
       next_start = next_start + CADENCE_CYCLES;
@@ -425,6 +525,12 @@ module tb_pmp_save_export #(
                expected_save_word(first_bad));
       $display("PMP SAVE PASS bytes=%0d payload_words=%0d pmp_reads=%0d max_tx=%0d",
                BODY_BYTES, BODY_WORDS, pmp_read_pulses, max_transaction_cycles);
+    end
+
+    if (USE_SNAPSHOT) begin
+      repeat (4) @(posedge clk_74a);
+      if (snapshot_failed)
+        $fatal(1, "snapshot streamer failed during physical transfer");
     end
 
     if (RUN_RTC) begin

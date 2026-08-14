@@ -426,6 +426,10 @@ apf_write_ingress #(
 // the unloader's read_en/read_data interface to the PSRAM's busy/read_avail.
 wire [31:0] save_read_bridge_data;
 wire        save_read_bridge_valid;
+wire [31:0] rtc_read_bridge_data;
+wire        rtc_read_bridge_valid;
+wire [31:0] snapshot_bridge_data;
+wire        snapshot_bridge_valid;
 wire        save_unloader_rd;
 wire [27:0] save_unloader_addr;
 reg  [15:0] save_unloader_data;
@@ -435,7 +439,29 @@ wire        gba_save_bus_idle;
 wire        bus_client_idle;
 wire        rtc_init_done;
 wire        reset_n_s;
-reg         save_unload_pending;
+wire        save_snapshot_start;
+wire        save_snapshot_start_74;
+wire        save_snapshot_busy_74;
+wire        save_snapshot_busy;
+wire        save_snapshot_ready_74;
+wire        save_snapshot_ready;
+wire        save_snapshot_failed_74;
+wire        save_snapshot_failed;
+wire        snapshot_source_read_74;
+wire        snapshot_source_read_sys;
+wire [16:0] snapshot_source_addr_74;
+reg  [16:0] snapshot_source_addr_sys;
+reg         snapshot_source_accepted_sys;
+wire        snapshot_source_accepted_74;
+wire        snapshot_source_idle_sys;
+wire        snapshot_source_idle_74;
+wire        snapshot_source_accept;
+reg         snapshot_source_seen;
+reg         snapshot_source_launch;
+reg         snapshot_source_pending;
+reg  [15:0] snapshot_source_data_sys;
+reg         snapshot_source_data_valid_sys;
+wire        snapshot_source_data_valid_74;
 reg  [23:0] save_unload_pause_count;
 wire        save_unload_pause = |save_unload_pause_count;
 
@@ -447,7 +473,7 @@ wire        save_unload_pause = |save_unload_pause_count;
 always @(posedge clk_sys) begin
     if (~pll_core_locked)
         save_unload_pause_count <= 24'd0;
-    else if (save_unloader_rd || save_unload_pending)
+    else if (save_unloader_rd || snapshot_source_pending || save_snapshot_busy)
         save_unload_pause_count <= 24'hFF_FFFF;
     else if (save_unload_pause_count != 0)
         save_unload_pause_count <= save_unload_pause_count - 1'b1;
@@ -455,6 +481,7 @@ end
 
 data_unloader #(
     .ADDRESS_MASK_UPPER_4   ( 4'h2 ),
+    .ADDRESS_MASK_SECOND_4  ( 4'h1 ), // RTC only; cart bypasses this CDC path
     .ADDRESS_SIZE           ( 28 ),
     .READ_MEM_CLOCK_DELAY   ( 20 ),         // Must cover PSRAM read latency
     .INPUT_WORD_SIZE        ( 2 )           // 16-bit input
@@ -465,14 +492,93 @@ data_unloader #(
     .bridge_rd          ( bridge_rd ),
     .bridge_endian_little ( bridge_endian_little ),
     .bridge_addr        ( bridge_addr ),
-    .bridge_rd_data     ( save_read_bridge_data ),
-    .bridge_rd_data_valid ( save_read_bridge_valid ),
+    .bridge_rd_data     ( rtc_read_bridge_data ),
+    .bridge_rd_data_valid ( rtc_read_bridge_valid ),
 
     .read_en            ( save_unloader_rd ),
     .read_addr          ( save_unloader_addr ),
     .read_ready         ( save_unloader_ready ),
     .read_data          ( save_unloader_data ),
     .read_data_valid    ( save_unloader_data_valid )
+);
+
+assign save_read_bridge_data = (bridge_addr[27:24] == 4'h0) ?
+    snapshot_bridge_data : rtc_read_bridge_data;
+assign save_read_bridge_valid = (bridge_addr[27:24] == 4'h0) ?
+    snapshot_bridge_valid : rtc_read_bridge_valid;
+
+// A cart export is authorized only after the complete live PSRAM save has been
+// copied into Pocket SRAM, read back with the same CRC32, and word zero has been
+// prefetched in clk_74a. The stream then bypasses the legacy unload CDC FIFOs.
+synch_3 snapshot_start_to_74 (
+    .i ( save_snapshot_start ),
+    .o ( save_snapshot_start_74 ),
+    .clk ( clk_74a )
+);
+synch_3 snapshot_busy_to_sys (
+    .i ( save_snapshot_busy_74 ),
+    .o ( save_snapshot_busy ),
+    .clk ( clk_sys )
+);
+synch_3 snapshot_ready_to_sys (
+    .i ( save_snapshot_ready_74 ),
+    .o ( save_snapshot_ready ),
+    .clk ( clk_sys )
+);
+synch_3 snapshot_failed_to_sys (
+    .i ( save_snapshot_failed_74 ),
+    .o ( save_snapshot_failed ),
+    .clk ( clk_sys )
+);
+synch_3 snapshot_request_to_sys (
+    .i ( snapshot_source_read_74 ),
+    .o ( snapshot_source_read_sys ),
+    .clk ( clk_sys )
+);
+synch_3 snapshot_response_to_74 (
+    .i ( snapshot_source_data_valid_sys ),
+    .o ( snapshot_source_data_valid_74 ),
+    .clk ( clk_74a )
+);
+synch_3 snapshot_accept_to_74 (
+    .i ( snapshot_source_accepted_sys ),
+    .o ( snapshot_source_accepted_74 ),
+    .clk ( clk_74a )
+);
+synch_3 snapshot_idle_to_74 (
+    .i ( snapshot_source_idle_sys ),
+    .o ( snapshot_source_idle_74 ),
+    .clk ( clk_74a )
+);
+
+save_snapshot #(
+    .SRAM_WAIT_CYCLES      ( 8 ),
+    .SOURCE_TIMEOUT_CYCLES ( 1024 )
+) cart_save_snapshot (
+    .clk                  ( clk_74a ),
+    .reset_n              ( pll_core_locked_s ),
+    .start                ( save_snapshot_start_74 ),
+    .word_count           ( save_size_sys[17:1] ),
+    .busy                 ( save_snapshot_busy_74 ),
+    .ready                ( save_snapshot_ready_74 ),
+    .failed               ( save_snapshot_failed_74 ),
+    .source_read          ( snapshot_source_read_74 ),
+    .source_addr          ( snapshot_source_addr_74 ),
+    .source_accepted      ( snapshot_source_accepted_74 ),
+    .source_idle          ( snapshot_source_idle_74 ),
+    .source_data          ( snapshot_source_data_sys ),
+    .source_data_valid    ( snapshot_source_data_valid_74 ),
+    .bridge_endian_little ( bridge_endian_little ),
+    .bridge_addr          ( bridge_addr ),
+    .bridge_rd            ( bridge_rd ),
+    .bridge_rd_data       ( snapshot_bridge_data ),
+    .bridge_rd_data_valid ( snapshot_bridge_valid ),
+    .sram_a               ( sram_a ),
+    .sram_dq              ( sram_dq ),
+    .sram_oe_n            ( sram_oe_n ),
+    .sram_we_n            ( sram_we_n ),
+    .sram_ub_n            ( sram_ub_n ),
+    .sram_lb_n            ( sram_lb_n )
 );
 
 // ---- PSRAM Access Mux ----
@@ -497,33 +603,58 @@ reg  [15:0] busfsm_psram_data_in;
 reg         busfsm_psram_write_high;
 reg         busfsm_psram_write_low;
 
-// Save unloader read bridge — captures PSRAM read result for the unloader
-// Cart saves and RTC sidecars share this pipeline at 0x20000000 and 0x21000000.
-// Only cart reads reach PSRAM; RTC reads come from live registers.
-wire save_unload_is_cart = save_unloader_addr[27:24] == 4'h0;
+// The RTC unloader is isolated to 0x21xxxxxx; cart save traffic never enters
+// its asynchronous request/response FIFOs.
 wire save_unload_is_rtc  = save_unloader_addr[27:24] == 4'h1;
 wire [15:0] rtc_unload_word;
 
 wire save_unloader_accept = save_unloader_rd && save_unloader_ready;
+assign snapshot_source_idle_sys = !snapshot_source_launch &&
+    !snapshot_source_pending && !snapshot_source_accepted_sys &&
+    !snapshot_source_data_valid_sys;
+assign snapshot_source_accept = snapshot_source_launch &&
+    !snapshot_source_pending && !psram_busy && save_export_quiescent_sys;
 
+// Four-phase bundled-data CDC. Address is stable before the synchronized request
+// is observed; response data remains stable until the request returns low.
 always @(posedge clk_sys) begin
     save_unloader_data_valid <= 1'b0;
     if (~pll_core_locked) begin
-        save_unload_pending <= 1'b0;
+        snapshot_source_seen           <= 1'b0;
+        snapshot_source_launch         <= 1'b0;
+        snapshot_source_pending        <= 1'b0;
+        snapshot_source_addr_sys       <= 17'd0;
+        snapshot_source_accepted_sys   <= 1'b0;
+        snapshot_source_data_sys       <= 16'd0;
+        snapshot_source_data_valid_sys <= 1'b0;
     end else begin
-        if (save_unloader_accept) begin
-            if (save_unload_is_rtc) begin
-                // RTC sidecar has the same accepted/valid contract as PSRAM.
-                save_unloader_data <= rtc_unload_word;
-                save_unloader_data_valid <= 1'b1;
-            end else if (save_unload_is_cart) begin
-                save_unload_pending <= 1'b1;
-            end
+        if (!snapshot_source_read_sys) begin
+            snapshot_source_seen           <= 1'b0;
+            snapshot_source_accepted_sys   <= 1'b0;
+            snapshot_source_data_valid_sys <= 1'b0;
+            if (!snapshot_source_pending)
+                snapshot_source_launch <= 1'b0;
+        end else if (!snapshot_source_seen && !snapshot_source_pending &&
+                     !snapshot_source_data_valid_sys) begin
+            snapshot_source_seen     <= 1'b1;
+            snapshot_source_addr_sys <= snapshot_source_addr_74;
+            snapshot_source_launch   <= 1'b1;
         end
-        if (psram_read_avail && save_unload_pending) begin
-            save_unloader_data       <= psram_data_out;
+
+        if (snapshot_source_accept) begin
+            snapshot_source_launch       <= 1'b0;
+            snapshot_source_pending      <= 1'b1;
+            snapshot_source_accepted_sys <= 1'b1;
+        end
+        if (psram_read_avail && snapshot_source_pending) begin
+            snapshot_source_data_sys       <= psram_data_out;
+            snapshot_source_data_valid_sys <= 1'b1;
+            snapshot_source_pending        <= 1'b0;
+        end
+
+        if (save_unloader_accept && save_unload_is_rtc) begin
+            save_unloader_data       <= rtc_unload_word;
             save_unloader_data_valid <= 1'b1;
-            save_unload_pending      <= 1'b0;
         end
     end
 end
@@ -615,24 +746,25 @@ wire        clear_client_idle = (clr_state == CLR_IDLE) && !clr_wr;
 // clk_sys and every PSRAM client must be idle before the first bridge read.
 wire        save_export_quiescent_sys = !reset_n_s && save_load_finalized &&
     !save_loader_busy && !save_loader_grant && !psram_busy &&
-    !save_unload_pending && clear_client_idle && bus_client_idle;
-wire        cart_export_ready_sys = save_mem_ready && !save_load_failed &&
-    save_export_quiescent_sys;
+    !snapshot_source_pending && clear_client_idle && bus_client_idle;
+// Keep start stable throughout copy/verify. Individual PSRAM launches remain
+// gated by save_export_quiescent_sys; transient busy must not reset the snapshot.
+assign save_snapshot_start = save_mem_ready && save_load_finalized &&
+    !save_load_failed && !reset_n_s;
+wire        cart_export_ready_sys = save_snapshot_ready &&
+    !save_snapshot_failed && save_export_quiescent_sys;
 wire        rtc_export_ready_sys = rtc_init_done && save_export_quiescent_sys;
 wire        save_unload_common_ready = save_unload_pause &&
-    !save_unload_pending && bus_client_idle && clear_client_idle &&
+    !snapshot_source_pending && bus_client_idle && clear_client_idle &&
     !save_loader_grant;
 assign save_finalize_safe = !save_loader_busy && !save_loader_grant && !psram_busy &&
-    !save_unload_pending && clear_client_idle && save_loader_settled;
+    !snapshot_source_pending && clear_client_idle && save_loader_settled;
 assign save_loader_ready = pll_core_locked && save_loader_known_slot &&
     bus_client_idle && clear_client_idle &&
-    !save_loader_grant && !psram_busy && !save_unload_pending;
+    !save_loader_grant && !psram_busy && !snapshot_source_pending;
 assign save_unloader_ready = save_unload_common_ready &&
-    ((save_unload_is_cart && cart_export_ready_sys &&
-     !psram_busy && !save_loader_wr) ||
-     // RTC is register-backed and must remain exportable even if the cart-save
-     // import failed.  Apply the same reset/quiescence contract used by 0080.
-     (save_unload_is_rtc && rtc_export_ready_sys));
+    // RTC is register-backed and remains exportable even if cart import failed.
+    save_unload_is_rtc && rtc_export_ready_sys;
 
 always @(posedge clk_sys) begin
     clr_wr <= 0;
@@ -644,7 +776,7 @@ always @(posedge clk_sys) begin
         case (clr_state)
             CLR_IDLE: begin
                 if (save_load_finalized && !save_clear_done &&
-                    bus_client_idle && !psram_busy && !save_unload_pending &&
+                    bus_client_idle && !psram_busy && !snapshot_source_pending &&
                     !save_loader_wr && !save_loader_grant) begin
                     if (!save_load_seen) begin
                         clr_addr  <= 17'd0;
@@ -658,7 +790,7 @@ always @(posedge clk_sys) begin
             CLR_WR: begin
                 // Hold ownership intent until no other PSRAM client can have a
                 // request in flight.  Only then emit the one-cycle clear write.
-                if (bus_client_idle && !psram_busy && !save_unload_pending &&
+                if (bus_client_idle && !psram_busy && !snapshot_source_pending &&
                      !save_loader_wr && !save_loader_grant) begin
                     clr_wr    <= 1;
                     clr_guard <= 1;
@@ -683,7 +815,7 @@ always @(posedge clk_sys) begin
     end
 end
 
-// PSRAM mux: priority encode loader > clear > unloader > bus_out
+// PSRAM mux: priority encode loader > clear > snapshot copy > bus_out
 always @(*) begin
     if (save_loader_grant) begin
         // Save loader write → die 1
@@ -703,12 +835,12 @@ always @(*) begin
         psram_data_in    = 16'hFFFF;
         psram_write_high = 1;
         psram_write_low  = 1;
-    end else if (save_unloader_accept && save_unload_is_cart) begin
-        // Save unloader read → die 1 (skip for RTC region)
+    end else if (snapshot_source_accept) begin
+        // Build the immutable export snapshot from live save PSRAM die 1.
         psram_write_en   = 0;
         psram_read_en    = 1;
-        psram_bank_sel   = 1;  // die 1
-        psram_addr       = save_unloader_addr[21:1];
+        psram_bank_sel   = 1;
+        psram_addr       = {5'd0, snapshot_source_addr_sys};
         psram_data_in    = 16'd0;
         psram_write_high = 1;
         psram_write_low  = 1;
@@ -839,7 +971,7 @@ always @(posedge clk_sys) begin
             // Hold the request until the shared controller is genuinely idle.
             // The unloader is prevented from accepting while bus_state is not
             // BUS_IDLE, so this pulse is also the arbiter's ownership grant.
-            if (!psram_busy && !save_unload_pending &&
+            if (!psram_busy && !snapshot_source_pending &&
                 !save_loader_accept && !save_loader_grant && clear_client_idle) begin
                 busfsm_psram_bank_sel <= 1'b1; // die 1
                 busfsm_psram_addr     <= bus_word_addr;
@@ -1201,14 +1333,6 @@ always @(posedge clk_sys) begin
         bios_loaded <= 1;
 end
 
-// tie off SRAM — inactive
-assign sram_a = 'h0;
-assign sram_dq = {16{1'bZ}};
-assign sram_oe_n  = 1;
-assign sram_we_n  = 1;
-assign sram_ub_n  = 1;
-assign sram_lb_n  = 1;
-
 assign dbg_tx = 1'bZ;
 assign user1 = 1'bZ;
 assign aux_scl = 1'bZ;
@@ -1265,7 +1389,7 @@ synch_3 cart_export_ready_sync (
     .fall ( )
 );
 synch_3 cart_export_failed_sync (
-    .i    ( save_load_failed ),
+    .i    ( save_load_failed | save_snapshot_failed ),
     .o    ( cart_export_failed_s ),
     .clk  ( clk_74a ),
     .rise ( ),

@@ -95,8 +95,10 @@ awk '
     for (c in ws)
       printf "    %-14s %+8.3f ns  (%s)\n", c, ws[c], ws_corner[c]
 
-    if (global_ws + 0 < 0) {
+    if (global_ws + 0 < 0 || global_wh + 0 < 0) {
       printf "\n  *** TIMING NOT MET ***\n"
+      if (global_ws + 0 < 0) printf "  Negative setup slack detected.\n"
+      if (global_wh + 0 < 0) printf "  Negative hold slack detected.\n"
       exit 1
     } else {
       printf "\n  Timing met.\n"
@@ -168,6 +170,18 @@ if [ -f "$REPORT_DIR/ap_core.sta.cram0_output_setup.rpt" ] || \
   print_path_report_worst "input setup"  "$REPORT_DIR/ap_core.sta.cram0_input_setup.rpt"
   print_path_report_worst "output hold"  "$REPORT_DIR/ap_core.sta.cram0_output_hold.rpt"
   print_path_report_worst "input hold"   "$REPORT_DIR/ap_core.sta.cram0_input_hold.rpt"
+fi
+
+if [ -f "$REPORT_DIR/ap_core.sta.sram_output_setup.rpt" ] || \
+   [ -f "$REPORT_DIR/ap_core.sta.sram_input_setup.rpt" ] || \
+   [ -f "$REPORT_DIR/ap_core.sta.sram_output_hold.rpt" ] || \
+   [ -f "$REPORT_DIR/ap_core.sta.sram_input_hold.rpt" ]; then
+  echo ""
+  echo "  SRAM snapshot path reports:"
+  print_path_report_worst "output setup" "$REPORT_DIR/ap_core.sta.sram_output_setup.rpt"
+  print_path_report_worst "input setup"  "$REPORT_DIR/ap_core.sta.sram_input_setup.rpt"
+  print_path_report_worst "output hold"  "$REPORT_DIR/ap_core.sta.sram_output_hold.rpt"
+  print_path_report_worst "input hold"   "$REPORT_DIR/ap_core.sta.sram_input_hold.rpt"
 fi
 
 echo ""

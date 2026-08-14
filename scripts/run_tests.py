@@ -123,6 +123,17 @@ def main() -> int:
         root,
         [
             python,
+            "tests/snapshot/run.py",
+            "--iverilog",
+            iverilog,
+            "--vvp",
+            vvp,
+        ],
+    )
+    run(
+        root,
+        [
+            python,
             "tests/save_lifecycle/run.py",
             "--iverilog",
             iverilog,
@@ -130,6 +141,7 @@ def main() -> int:
             vvp,
         ],
     )
+    run(root, [python, "tests/timing_gate/run.py"])
     save_command = [
         python,
         "tests/save/run.py",

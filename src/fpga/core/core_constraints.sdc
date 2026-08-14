@@ -111,6 +111,24 @@ set_min_delay 0.000 -from $clk_sys_clock -to $cram0_output_ports
 set_max_delay $CRAM0_CLK_SYS_PERIOD_NS -from $cram0_input_ports -to $clk_sys_clock
 set_min_delay 0.000 -from $cram0_input_ports -to $clk_sys_clock
 
+# ============================================================
+# Asynchronous SRAM snapshot timing coverage
+# ============================================================
+# SRAM: AS6C2016-55BIN, 128Kx16, 55 ns asynchronous access. The snapshot
+# controller holds address/control for eight clk_74a cycles (~108 ns). With
+# one clk_74a-period outbound and inbound FPGA budgets plus the SRAM's 55 ns
+# access time, this leaves approximately 25.8 ns for board delay and skew.
+# These constraints cover FPGA-side pin paths; authoritative 21.1.1 multicorner
+# STA and fitted I/O-register placement remain mandatory.
+set sram_clk_74a_clock [get_clocks {clk_74a}]
+set SRAM_CLK_74A_PERIOD_NS [get_clock_info -period $sram_clk_74a_clock]
+set sram_output_ports [get_ports {sram_a[*] sram_dq[*] sram_oe_n sram_we_n sram_ub_n sram_lb_n}]
+set sram_input_ports [get_ports {sram_dq[*]}]
+set_max_delay $SRAM_CLK_74A_PERIOD_NS -from $sram_clk_74a_clock -to $sram_output_ports
+set_min_delay 0.000 -from $sram_clk_74a_clock -to $sram_output_ports
+set_max_delay $SRAM_CLK_74A_PERIOD_NS -from $sram_input_ports -to $sram_clk_74a_clock
+set_min_delay 0.000 -from $sram_input_ports -to $sram_clk_74a_clock
+
 # Non-SDRAM top-level I/O timing coverage:
 # These APF/platform interfaces are not signed off with external setup/hold
 # delays here. They are either protocol/wait-state timed, source-synchronous

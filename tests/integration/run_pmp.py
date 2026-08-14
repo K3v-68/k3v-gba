@@ -59,6 +59,7 @@ def compile_case(
             str(REPO_ROOT / "src" / "fpga" / "apf" / "io_bridge_peripheral.v"),
             str(fifo_model),
             str(REPO_ROOT / "src" / "fpga" / "pocket" / "data_unloader.sv"),
+            str(REPO_ROOT / "src" / "fpga" / "pocket" / "save_snapshot.sv"),
             str(REPO_ROOT / "src" / "fpga" / "pocket" / "psram.sv"),
             str(TEST_DIR / "tb_pmp_save_export.sv"),
         )
@@ -139,11 +140,38 @@ def main() -> int:
                 "tb_pmp_save_export.EXPECT_ALL_ZERO=1",
             ),
         )
-        with ThreadPoolExecutor(max_workers=2) as executor:
+        snapshot = compile_case(
+            compiler,
+            build_dir,
+            "pmp_snapshot",
+            fifo_model,
+            (
+                f"tb_pmp_save_export.BODY_BYTES={args.bytes}",
+                "tb_pmp_save_export.RUN_RTC=0",
+                "tb_pmp_save_export.USE_SNAPSHOT=1",
+            ),
+        )
+        duplicate = compile_case(
+            compiler,
+            build_dir,
+            "pmp_snapshot_middle_duplicate",
+            fifo_model,
+            (
+                "tb_pmp_save_export.BODY_BYTES=64",
+                "tb_pmp_save_export.RUN_RTC=0",
+                "tb_pmp_save_export.USE_SNAPSHOT=1",
+                "tb_pmp_save_export.INJECT_MIDDLE_DUPLICATE=1",
+            ),
+        )
+        with ThreadPoolExecutor(max_workers=4) as executor:
             healthy_result = executor.submit(run_case, runtime, healthy)
             starved_result = executor.submit(run_case, runtime, starved)
+            snapshot_result = executor.submit(run_case, runtime, snapshot)
+            duplicate_result = executor.submit(run_case, runtime, duplicate)
             healthy_result.result()
             starved_result.result()
+            snapshot_result.result()
+            duplicate_result.result()
     finally:
         if args.keep_build:
             print(f"Kept build directory: {build_dir}")

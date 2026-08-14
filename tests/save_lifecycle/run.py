@@ -74,7 +74,7 @@ def verify_production_contract() -> None:
         "!save_loader_busy",
         "!save_loader_grant",
         "!psram_busy",
-        "!save_unload_pending",
+        "!snapshot_source_pending",
         "clear_client_idle",
         "bus_client_idle",
     ):
@@ -86,6 +86,31 @@ def verify_production_contract() -> None:
         raise RuntimeError(
             "finalized export must not depend on the boot-only allcomplete drain barrier"
         )
+    require_pattern(
+        top_source,
+        r"assign\s+save_snapshot_start\s*=\s*save_mem_ready\s*&&\s*"
+        r"save_load_finalized\s*&&\s*!save_load_failed\s*&&\s*!reset_n_s",
+        "snapshot start remains stable throughout reset-enter copy/verify",
+    )
+    require_pattern(
+        top_source,
+        r"cart_export_ready_sys\s*=\s*save_snapshot_ready\s*&&\s*"
+        r"!save_snapshot_failed\s*&&\s*save_export_quiescent_sys",
+        "slot-10 authorization requires a verified snapshot",
+    )
+    require_pattern(
+        top_source,
+        r"\.bridge_rd_data\s*\(\s*snapshot_bridge_data\s*\).*?"
+        r"\.bridge_rd_data_valid\s*\(\s*snapshot_bridge_valid\s*\)",
+        "cart unloads stream directly from prefetched SRAM in clk_74a",
+    )
+    require_pattern(
+        top_source,
+        r"ADDRESS_MASK_SECOND_4\s*\(\s*4'h1\s*\)",
+        "legacy unload CDC path is isolated to RTC slot 0x21",
+    )
+    if "assign sram_oe_n" in top_source or "assign sram_we_n" in top_source:
+        raise RuntimeError("external snapshot SRAM is still tied off in production")
     require_pattern(
         top_source,
         r"16'd10\s*:\s*begin.*?cart_export_failed_s.*?2'd1.*?"
@@ -100,9 +125,9 @@ def verify_production_contract() -> None:
     )
     require_pattern(
         top_source,
-        r"save_unload_is_cart\s*&&\s*cart_export_ready_sys.*?"
+        r"assign\s+save_unloader_ready\s*=\s*save_unload_common_ready\s*&&.*?"
         r"save_unload_is_rtc\s*&&\s*rtc_export_ready_sys",
-        "address-selected cart/RTC unloader readiness",
+        "legacy unloader readiness is RTC-only",
     )
     if len(re.findall(r"\.use_eab\s*=\s*\"OFF\"", unloader_source)) != 2:
         raise RuntimeError(
