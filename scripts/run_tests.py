@@ -108,6 +108,17 @@ def main() -> int:
             vvp,
         ],
     )
+    pmp_command = [
+        python,
+        "tests/integration/run_pmp.py",
+        "--iverilog",
+        iverilog,
+        "--vvp",
+        vvp,
+    ]
+    if args.quick:
+        pmp_command.extend(("--bytes", "64"))
+    run(root, pmp_command)
     run(
         root,
         [

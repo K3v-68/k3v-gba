@@ -71,8 +71,8 @@ def run(command: list[str]) -> None:
     subprocess.run(command, cwd=REPO_ROOT, check=True)
 
 
-def run_expect_failure(command: list[str], label: str) -> None:
-    print("+", " ".join(command), f"# expect {label} refusal", flush=True)
+def run_expect_deadline_detection(command: list[str], label: str) -> None:
+    print("+", " ".join(command), f"# expect {label} deadline detection", flush=True)
     result = subprocess.run(
         command,
         cwd=REPO_ROOT,
@@ -85,9 +85,9 @@ def run_expect_failure(command: list[str], label: str) -> None:
     sentinel = "was not valid after 88 clocks"
     if result.returncode == 0 or sentinel not in result.stdout:
         raise RuntimeError(
-            f"{label} response was not explicitly refused at the Pocket cadence"
+            f"{label} response did not trigger the testbench deadline detector"
         )
-    print(f"PASS: {label} response refused at the 88-clock boundary.")
+    print(f"PASS: testbench detected the {label} response deadline miss.")
 
 
 def compile_test(
@@ -226,8 +226,8 @@ def main() -> int:
             import_result.result()
             export_ff_result.result()
             export_pattern_result.result()
-        run_expect_failure(missing_command, "missing")
-        run_expect_failure(delayed_command, "late")
+        run_expect_deadline_detection(missing_command, "missing")
+        run_expect_deadline_detection(delayed_command, "late")
     finally:
         if args.keep_build:
             print(f"Kept build directory: {build_dir}")
