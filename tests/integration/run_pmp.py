@@ -175,7 +175,68 @@ def main() -> int:
                 "tb_pmp_save_export.INJECT_BOUNDARY_PRIME_DUPLICATE=1",
             ),
         )
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        boundary_duplicate_64k = compile_case(
+            compiler,
+            build_dir,
+            "pmp_snapshot_1k_boundary_prime_64k",
+            fifo_model,
+            (
+                "tb_pmp_save_export.BODY_BYTES=65536",
+                "tb_pmp_save_export.RUN_RTC=0",
+                "tb_pmp_save_export.USE_SNAPSHOT=1",
+                "tb_pmp_save_export.INJECT_BOUNDARY_PRIME_DUPLICATE=1",
+            ),
+        )
+        repeated_boundary_duplicate = compile_case(
+            compiler,
+            build_dir,
+            "pmp_snapshot_repeated_1k_boundary_prime",
+            fifo_model,
+            (
+                "tb_pmp_save_export.BODY_BYTES=2048",
+                "tb_pmp_save_export.RUN_RTC=0",
+                "tb_pmp_save_export.USE_SNAPSHOT=1",
+                "tb_pmp_save_export.INJECT_BOUNDARY_PRIME_DUPLICATE=1",
+                "tb_pmp_save_export.BOUNDARY_PRIME_REPEATS=2",
+            ),
+        )
+        chunk_last_duplicate = compile_case(
+            compiler,
+            build_dir,
+            "pmp_snapshot_chunk_last_duplicate",
+            fifo_model,
+            (
+                "tb_pmp_save_export.BODY_BYTES=2048",
+                "tb_pmp_save_export.RUN_RTC=0",
+                "tb_pmp_save_export.USE_SNAPSHOT=1",
+                "tb_pmp_save_export.INJECT_CHUNK_LAST_DUPLICATE=1",
+            ),
+        )
+        boundary_rewind = compile_case(
+            compiler,
+            build_dir,
+            "pmp_snapshot_boundary_rewind",
+            fifo_model,
+            (
+                "tb_pmp_save_export.BODY_BYTES=2048",
+                "tb_pmp_save_export.RUN_RTC=0",
+                "tb_pmp_save_export.USE_SNAPSHOT=1",
+                "tb_pmp_save_export.INJECT_BOUNDARY_REWIND=1",
+            ),
+        )
+        command_interleave = compile_case(
+            compiler,
+            build_dir,
+            "pmp_snapshot_command_interleave",
+            fifo_model,
+            (
+                "tb_pmp_save_export.BODY_BYTES=2048",
+                "tb_pmp_save_export.RUN_RTC=0",
+                "tb_pmp_save_export.USE_SNAPSHOT=1",
+                "tb_pmp_save_export.INTERLEAVE_COMMAND_READ=1",
+            ),
+        )
+        with ThreadPoolExecutor(max_workers=10) as executor:
             healthy_result = executor.submit(run_case, runtime, healthy)
             starved_result = executor.submit(run_case, runtime, starved)
             snapshot_result = executor.submit(run_case, runtime, snapshot)
@@ -183,11 +244,31 @@ def main() -> int:
             boundary_duplicate_result = executor.submit(
                 run_case, runtime, boundary_duplicate
             )
+            boundary_duplicate_64k_result = executor.submit(
+                run_case, runtime, boundary_duplicate_64k
+            )
+            repeated_boundary_duplicate_result = executor.submit(
+                run_case, runtime, repeated_boundary_duplicate
+            )
+            chunk_last_duplicate_result = executor.submit(
+                run_case, runtime, chunk_last_duplicate
+            )
+            boundary_rewind_result = executor.submit(
+                run_case, runtime, boundary_rewind
+            )
+            command_interleave_result = executor.submit(
+                run_case, runtime, command_interleave
+            )
             healthy_result.result()
             starved_result.result()
             snapshot_result.result()
             duplicate_result.result()
             boundary_duplicate_result.result()
+            boundary_duplicate_64k_result.result()
+            repeated_boundary_duplicate_result.result()
+            chunk_last_duplicate_result.result()
+            boundary_rewind_result.result()
+            command_interleave_result.result()
     finally:
         if args.keep_build:
             print(f"Kept build directory: {build_dir}")

@@ -13,7 +13,11 @@ module tb_pmp_save_export #(
   parameter integer EXPECT_ALL_ZERO = 0,
   parameter integer USE_SNAPSHOT = 0,
   parameter integer INJECT_MIDDLE_DUPLICATE = 0,
-  parameter integer INJECT_BOUNDARY_PRIME_DUPLICATE = 0
+  parameter integer INJECT_BOUNDARY_PRIME_DUPLICATE = 0,
+  parameter integer BOUNDARY_PRIME_REPEATS = 1,
+  parameter integer INJECT_CHUNK_LAST_DUPLICATE = 0,
+  parameter integer INJECT_BOUNDARY_REWIND = 0,
+  parameter integer INTERLEAVE_COMMAND_READ = 0
 );
   localparam integer BODY_HALFWORDS = BODY_BYTES / 2;
   localparam integer BODY_WORDS = BODY_BYTES / 4;
@@ -28,6 +32,7 @@ module tb_pmp_save_export #(
   end
 
   integer clk74_cycle = 0;
+  integer prime_repeat;
   always @(posedge clk_74a)
     clk74_cycle <= clk74_cycle + 1;
 
@@ -114,6 +119,7 @@ module tb_pmp_save_export #(
   always @(*) begin
     casex (bridge_addr)
       32'h2xxxxxxx: bridge_rd_data = save_read_bridge_data;
+      32'hF8xxxxxx: bridge_rd_data = 32'hc0de_f00d;
       default:      bridge_rd_data = 32'd0;
     endcase
   end
@@ -484,18 +490,51 @@ module tb_pmp_save_export #(
     // starts preparation of its own address.  The final duplicate address is
     // the flush transaction that returns the last body word.
     for (word_index = 1; word_index < BODY_WORDS; word_index = word_index + 1) begin
+      // Competing boundary hypotheses remain explicit negative models.  A
+      // duplicate of the preceding chunk's last address must fail closed; a
+      // later rewind must likewise fail even though word[k] is already held.
+      if (USE_SNAPSHOT && INJECT_CHUNK_LAST_DUPLICATE &&
+          word_index == 256) begin
+        physical_read(32'h2000_0000 + (word_index - 1) * 4, next_start,
+                      physical_word, tx_start, tx_end);
+        repeat (4) @(posedge clk_74a);
+        if (!snapshot_failed)
+          $fatal(1, "chunk-last duplicate did not fail snapshot");
+        $display("PMP CHUNK-LAST DUPLICATE FAILURE PASS word=%0d", word_index - 1);
+        $finish;
+      end
       physical_read(32'h2000_0000 + word_index * 4, next_start,
                     physical_word, tx_start, tx_end);
       score_previous_save(word_index - 1);
-      // Pocket transfers data-slot reads in 1 KiB chunks.  The first request
-      // of every chunk after the first repeats that chunk's starting address
-      // to prime the one-word physical bridge pipeline; its response is not
-      // file payload.  Model that discarded transaction exactly.
+      if (USE_SNAPSHOT && INJECT_BOUNDARY_REWIND && word_index == 256) begin
+        next_start = next_start + CADENCE_CYCLES;
+        physical_read(32'h2000_0000 + (word_index - 1) * 4, next_start,
+                      physical_word, tx_start, tx_end);
+        repeat (4) @(posedge clk_74a);
+        if (!snapshot_failed)
+          $fatal(1, "boundary rewind did not fail snapshot");
+        $display("PMP BOUNDARY REWIND FAILURE PASS word=%0d", word_index - 1);
+        $finish;
+      end
+      // Artifact-supported hypothesis model: repeat the first request of each
+      // noninitial 1 KiB chunk and discard its response.  This validates RTL
+      // compatibility with that model; it is not a captured Pocket trace.
       if (USE_SNAPSHOT && INJECT_BOUNDARY_PRIME_DUPLICATE &&
           word_index != 0 && (word_index & 255) == 0) begin
+        for (prime_repeat = 0; prime_repeat < BOUNDARY_PRIME_REPEATS;
+             prime_repeat = prime_repeat + 1) begin
+          next_start = next_start + CADENCE_CYCLES;
+          physical_read(32'h2000_0000 + word_index * 4, next_start,
+                        physical_word, tx_start, tx_end);
+        end
+      end
+      if (USE_SNAPSHOT && INTERLEAVE_COMMAND_READ &&
+          word_index != 0 && (word_index & 255) == 0) begin
         next_start = next_start + CADENCE_CYCLES;
-        physical_read(32'h2000_0000 + word_index * 4, next_start,
+        physical_read(32'hF800_0000, next_start,
                       physical_word, tx_start, tx_end);
+        if (physical_word !== 32'hc0de_f00d)
+          $fatal(1, "interleaved command response mismatch: %08x", physical_word);
       end
       if (USE_SNAPSHOT && INJECT_MIDDLE_DUPLICATE && word_index == 2) begin
         next_start = next_start + CADENCE_CYCLES;
