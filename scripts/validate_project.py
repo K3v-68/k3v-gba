@@ -88,6 +88,11 @@ def validate_data_slots(root: Path) -> None:
         raise ValueError("data slot IDs must be unique")
     if len(addresses) != len(set(addresses)):
         raise ValueError("data slot bridge addresses must be unique")
+    if ids[:4] != [1, 4, 10, 11]:
+        raise ValueError(
+            "data slots must remain ordered ROM, BIOS, Save, RTC: "
+            "core_top datatable addresses 5 and 7 encode Save/RTC indices 2 and 3"
+        )
 
     by_id = {slot["id"]: slot for slot in slots}
     save_slot = by_id.get(10)
