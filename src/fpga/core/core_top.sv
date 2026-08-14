@@ -551,6 +551,15 @@ synch_3 snapshot_idle_to_74 (
     .clk ( clk_74a )
 );
 
+// Save-type detection is stable after ROM download. Synchronize the single
+// selector bit instead of crossing the derived 17-bit save-size bus.
+wire flash_1m_s;
+synch_3 flash_1m_sync (
+    .i   ( det_flash_1m ),
+    .o   ( flash_1m_s ),
+    .clk ( clk_74a )
+);
+
 save_snapshot #(
     .SRAM_WAIT_CYCLES      ( 8 ),
     .SOURCE_TIMEOUT_CYCLES ( 1024 )
@@ -558,7 +567,7 @@ save_snapshot #(
     .clk                  ( clk_74a ),
     .reset_n              ( pll_core_locked_s ),
     .start                ( save_snapshot_start_74 ),
-    .word_count           ( save_size_sys[17:1] ),
+    .word_count           ( flash_1m_s ? 17'h1_0000 : 17'h0_8000 ),
     .busy                 ( save_snapshot_busy_74 ),
     .ready                ( save_snapshot_ready_74 ),
     .failed               ( save_snapshot_failed_74 ),
@@ -1565,14 +1574,7 @@ end
 // Pocket reads these values on exit. Alternate continuously between the two
 // size words so either value is restored if host bookkeeping overwrites it.
 
-// CDC: flash_1m, sram_quirk, gpio_quirk from clk_sys → clk_74a (stable after download)
-wire flash_1m_s;
-synch_3 flash_1m_sync (
-    .i   ( det_flash_1m ),
-    .o   ( flash_1m_s ),
-    .clk ( clk_74a )
-);
-
+// CDC: gpio/RTC selectors from clk_sys → clk_74a (stable after download)
 wire gpio_quirk_s;
 synch_3 gpio_quirk_sync (
     .i   ( quirk_gpio ),

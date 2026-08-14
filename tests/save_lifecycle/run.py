@@ -128,6 +128,14 @@ def verify_production_contract() -> None:
     )
     require_pattern(
         top_source,
+        r"\.word_count\s*\(\s*flash_1m_s\s*\?\s*17'h1_0000\s*:\s*"
+        r"17'h0_8000\s*\)",
+        "snapshot size is selected from the synchronized clk_74a save-type bit",
+    )
+    if re.search(r"\.word_count\s*\(\s*save_size_sys", top_source):
+        raise RuntimeError("snapshot word_count still crosses clk_sys as an unsynchronized bus")
+    require_pattern(
+        top_source,
         r"ADDRESS_MASK_SECOND_4\s*\(\s*4'h1\s*\)",
         "legacy unload CDC path is isolated to RTC slot 0x21",
     )
