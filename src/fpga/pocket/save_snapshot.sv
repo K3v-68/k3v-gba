@@ -80,6 +80,7 @@ module save_snapshot #(
   reg [15:0] prefetched_word_index = 16'd0;
   reg cache_valid = 1'b0;
   reg have_served_word = 1'b0;
+  reg chunk_boundary_prime_used = 1'b0;
   reg prev_bridge_rd = 1'b0;
 
   wire bridge_read_start = bridge_rd && !prev_bridge_rd;
@@ -90,6 +91,7 @@ module save_snapshot #(
       prefetched_word_index == 16'd0 &&
       requested_word_index == terminal_word_index;
   wire chunk_boundary_prime_duplicate = cache_valid &&
+      !chunk_boundary_prime_used &&
       prefetched_word_index[15:8] != 8'd0 &&
       prefetched_word_index[7:0] == 8'd1 &&
       requested_word_index[7:0] == 8'd0 &&
@@ -131,6 +133,7 @@ module save_snapshot #(
       ready <= 1'b0;
       failed <= 1'b1;
       cache_valid <= 1'b0;
+      chunk_boundary_prime_used <= 1'b0;
       state <= ST_FAILED;
     end
   endtask
@@ -179,6 +182,7 @@ module save_snapshot #(
       prefetched_word_index <= 16'd0;
       cache_valid <= 1'b0;
       have_served_word <= 1'b0;
+      chunk_boundary_prime_used <= 1'b0;
       prev_bridge_rd <= 1'b0;
       bridge_rd_data <= 32'd0;
       bridge_rd_data_valid <= 1'b0;
@@ -196,6 +200,7 @@ module save_snapshot #(
         failed <= 1'b0;
         cache_valid <= 1'b0;
         have_served_word <= 1'b0;
+        chunk_boundary_prime_used <= 1'b0;
         state <= ST_ABORT_DRAIN;
       end else begin
       case (state)
@@ -206,6 +211,7 @@ module save_snapshot #(
           source_read <= 1'b0;
           cache_valid <= 1'b0;
           have_served_word <= 1'b0;
+          chunk_boundary_prime_used <= 1'b0;
           sram_drive <= 1'b0;
           sram_oe_n <= 1'b1;
           sram_we_n <= 1'b1;
@@ -383,11 +389,14 @@ module save_snapshot #(
             end else if (chunk_boundary_prime_duplicate) begin
               // Pocket primes each 1 KiB data-slot chunk by repeating its
               // first address and discarding that transaction's response.
-              // Keep the last response held and preserve the next prefetch.
+              // Keep the last response held and preserve the next prefetch,
+              // but accept only one prime before forward progress resumes.
+              chunk_boundary_prime_used <= 1'b1;
             end else if (cache_valid && prefetched_word_index == requested_word_index) begin
               bridge_rd_data <= formatted_prefetched_word;
               bridge_rd_data_valid <= 1'b1;
               have_served_word <= 1'b1;
+              chunk_boundary_prime_used <= 1'b0;
               cache_valid <= 1'b0;
               if ({1'b0, requested_word_index} + 1'b1 < (word_count >> 1)) begin
                 prefetched_word_index <= requested_word_index + 1'b1;

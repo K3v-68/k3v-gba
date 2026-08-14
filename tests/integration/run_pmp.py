@@ -190,7 +190,7 @@ def main() -> int:
         repeated_boundary_duplicate = compile_case(
             compiler,
             build_dir,
-            "pmp_snapshot_repeated_1k_boundary_prime",
+            "pmp_snapshot_repeated_1k_boundary_prime_failure",
             fifo_model,
             (
                 "tb_pmp_save_export.BODY_BYTES=2048",

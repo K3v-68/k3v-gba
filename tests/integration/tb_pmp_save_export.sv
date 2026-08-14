@@ -526,6 +526,14 @@ module tb_pmp_save_export #(
           next_start = next_start + CADENCE_CYCLES;
           physical_read(32'h2000_0000 + word_index * 4, next_start,
                         physical_word, tx_start, tx_end);
+          if (BOUNDARY_PRIME_REPEATS > 1 && prime_repeat == 1) begin
+            repeat (4) @(posedge clk_74a);
+            if (!snapshot_failed)
+              $fatal(1, "second boundary prime did not fail closed");
+            $display("PMP REPEATED BOUNDARY PRIME FAILURE PASS word=%0d",
+                     word_index);
+            $finish;
+          end
         end
       end
       if (USE_SNAPSHOT && INTERLEAVE_COMMAND_READ &&
