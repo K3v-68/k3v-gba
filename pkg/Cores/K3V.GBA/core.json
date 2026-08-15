@@ -9,8 +9,8 @@
       "description": "GBA with RTC, save states and fast-forward",
       "author": "K3V",
       "url": "https://github.com/K3v-68/k3v-gba",
-      "version": "0.1.4",
-      "date_release": "2026-08-13"
+      "version": "0.1.5",
+      "date_release": "2026-08-14"
     },
     "framework": {
       "target_product": "Analogue Pocket",
