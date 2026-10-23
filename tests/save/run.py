@@ -165,6 +165,26 @@ def main() -> int:
 
         run([*command, *transfer_args])
         run([*command, "+STALL_ONLY", f"+SEED={args.seed}"])
+
+        if simulator == "iverilog":
+            # core_top's RTC unloader uses the narrow request FIFO; prove it is
+            # request-for-request identical to the full-width reference.
+            narrow = build_dir / "narrow.vvp"
+            run(
+                [
+                    iverilog or shutil.which("iverilog"),
+                    "-g2012",
+                    "-Wall",
+                    "-s",
+                    "tb_data_unloader_narrow",
+                    "-o",
+                    str(narrow),
+                    str(TEST_DIR / "dcfifo_model.sv"),
+                    str(REPO_ROOT / "src" / "fpga" / "pocket" / "data_unloader.sv"),
+                    str(TEST_DIR / "tb_data_unloader_narrow.sv"),
+                ]
+            )
+            run([vvp or shutil.which("vvp"), str(narrow)])
     finally:
         if args.keep_build:
             print(f"Kept build directory: {build_dir}")

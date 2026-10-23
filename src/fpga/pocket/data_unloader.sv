@@ -34,6 +34,14 @@ module data_unloader #(
     parameter integer ADDRESS_MASK_SECOND_4 = -1,
     parameter ADDRESS_SIZE = 28,
 
+    // Number of low address bits carried through the request CDC FIFO. 28 keeps
+    // the historical full-width behavior. A smaller value requires
+    // ADDRESS_MASK_SECOND_4 >= 0: the omitted bits [27:FIFO bits] are then
+    // reconstructed as zero, except bits [27:24] which return that constant
+    // nibble.  Intended for slots only a few bytes long (the 16-byte RTC slot),
+    // where carrying the full 28-bit address costs a large logic FIFO.
+    parameter integer ADDRESS_FIFO_BITS = 28,
+
     // Number of memory clock cycles it takes for a read to complete
     parameter READ_MEM_CLOCK_DELAY = 1,
 
@@ -67,10 +75,26 @@ module data_unloader #(
   reg address_write_req = 0;
   wire address_empty;
 
-  wire [27:0] fifo_address_out;
+  localparam integer FIFO_ADDR_W = ADDRESS_FIFO_BITS;
+  localparam [3:0] SECOND_NIBBLE = ADDRESS_MASK_SECOND_4[3:0];
+  localparam [27:0] ADDR_CONST_UPPER =
+      (ADDRESS_MASK_SECOND_4 < 0 || FIFO_ADDR_W >= 28) ? 28'd0 : {SECOND_NIBBLE, 24'd0};
+
+  // synthesis translate_off
+  initial begin
+    if (FIFO_ADDR_W < 1 || FIFO_ADDR_W > 28)
+      $fatal(1, "data_unloader: ADDRESS_FIFO_BITS must be 1..28");
+    if (FIFO_ADDR_W < 28 && (ADDRESS_MASK_SECOND_4 < 0 || FIFO_ADDR_W > 24))
+      $fatal(1, "data_unloader: narrow address FIFO needs ADDRESS_MASK_SECOND_4 and <=24 bits");
+  end
+  // synthesis translate_on
+
+  wire [FIFO_ADDR_W-1:0] fifo_address_out;
+  wire [27:0] fifo_address_ext = fifo_address_out;
+  wire [27:0] fifo_address_full = fifo_address_ext | ADDR_CONST_UPPER;
 
   dcfifo fifo_address_req (
-      .data(fifo_address_in),
+      .data(fifo_address_in[FIFO_ADDR_W-1:0]),
       .rdclk(clk_memory),
       .rdreq(address_read_req),
       .wrclk(clk_74a),
@@ -91,7 +115,7 @@ module data_unloader #(
   defparam fifo_address_req.clocks_are_synchronized = "FALSE",
       fifo_address_req.intended_device_family = "Cyclone V", fifo_address_req.lpm_numwords = 4,
       fifo_address_req.lpm_showahead = "OFF", fifo_address_req.lpm_type = "dcfifo",
-      fifo_address_req.lpm_width = 28, fifo_address_req.lpm_widthu = 2,
+      fifo_address_req.lpm_width = FIFO_ADDR_W, fifo_address_req.lpm_widthu = 2,
       fifo_address_req.overflow_checking = "OFF", fifo_address_req.rdsync_delaypipe = 5,
       fifo_address_req.underflow_checking = "OFF", fifo_address_req.use_eab = "OFF",
       fifo_address_req.wrsync_delaypipe = 5;
@@ -272,7 +296,7 @@ module data_unloader #(
       end
 
       READ_MEM_REQUEST: begin
-        read_addr <= fifo_address_out[ADDRESS_SIZE-1:0];
+        read_addr <= fifo_address_full[ADDRESS_SIZE-1:0];
         read_en <= 1;
         data_read_state <= READ_MEM_ACCEPT;
       end

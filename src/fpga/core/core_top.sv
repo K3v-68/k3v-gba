@@ -437,6 +437,8 @@ reg         save_unloader_data_valid;
 wire        save_unloader_ready;
 wire        gba_save_bus_idle;
 wire        bus_client_idle;
+wire        reset_drain_pause;     // pause GBA while a host reset waits for the save bus
+wire        reset_drain_quiesced;  // save bus drained; host reset may now take effect
 wire        rtc_init_done;
 wire        reset_n_s;
 wire        save_snapshot_start;
@@ -483,6 +485,7 @@ data_unloader #(
     .ADDRESS_MASK_UPPER_4   ( 4'h2 ),
     .ADDRESS_MASK_SECOND_4  ( 4'h1 ), // RTC only; cart bypasses this CDC path
     .ADDRESS_SIZE           ( 28 ),
+    .ADDRESS_FIFO_BITS      ( 8 ),          // 16-byte RTC slot: carry only offset bits [7:0]
     .READ_MEM_CLOCK_DELAY   ( 20 ),         // Must cover PSRAM read latency
     .INPUT_WORD_SIZE        ( 2 )           // 16-bit input
 ) save_data_unloader (
@@ -753,7 +756,7 @@ wire        clear_client_idle = (clr_state == CLR_IDLE) && !clr_wr;
 // Pocket issues 0x0010 before a nonvolatile flush.  Do not authorize that
 // flush merely because the boot image exists: the reset must have crossed into
 // clk_sys and every PSRAM client must be idle before the first bridge read.
-wire        save_export_quiescent_sys = !reset_n_s && save_load_finalized &&
+wire        save_export_quiescent_sys = !reset_n_s && reset_drain_quiesced && save_load_finalized &&
     !save_loader_busy && !save_loader_grant && !psram_busy &&
     !snapshot_source_pending && clear_client_idle && bus_client_idle;
 // Keep start stable throughout copy/verify. Individual PSRAM launches remain
@@ -1307,8 +1310,22 @@ wire rtc_required_sys = quirk_gpio | force_rtc_s;
 
 // RTC games remain reset until offline catch-up has committed its shadow
 // calendar atomically. Non-RTC games do not depend on host RTC delivery.
-wire reset_gba = ~pll_core_locked | ~dataslot_allcomplete_s | ~reset_n_s |
-                 core_reset_s | ~save_mem_ready |
+//
+// Host resets (Pocket 0x0010 and the core menu reset) are deferred until any
+// in-flight flash program/erase burst has drained.  Resetting gba_memorymux
+// mid-FLASH_WRITEBLOCK abandons the burst and leaves a half-erased sector that
+// the save export would then copy to the SD card.
+reset_drain_gate reset_drain (
+    .clk        ( clk_sys ),
+    .reset_req  ( ~reset_n_s | core_reset_s ),
+    .bus_idle   ( bus_client_idle ),
+    .pause      ( reset_drain_pause ),
+    .quiesced   ( reset_drain_quiesced )
+);
+
+wire reset_gba = ~pll_core_locked | ~dataslot_allcomplete_s |
+                 ((~reset_n_s | core_reset_s) & reset_drain_quiesced) |
+                 ~save_mem_ready |
                  (rtc_required_sys & ~rtc_init_done);
 
 // ---- BIOS Loading via shared APF ingress → gba_top internal BRAM ----
@@ -1926,7 +1943,7 @@ gba_top #(
     .save_bus_idle       ( gba_save_bus_idle ),
     .load_done           ( ss_load_done ),
     .savestate_busy      ( ss_busy ),
-    .sleep_external      ( ss_loading | save_unload_pause ),
+    .sleep_external      ( ss_loading | save_unload_pause | reset_drain_pause ),
     // Input
     .KeyA                ( key_a ),
     .KeyB                ( key_b ),

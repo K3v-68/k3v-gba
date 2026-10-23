@@ -144,6 +144,7 @@ try {
         'src\fpga\core\core_bridge_cmd.v',
         'src\fpga\core\core_top.sv',
         'src\fpga\core\rtc_persistence.sv',
+        'src\fpga\core\reset_drain_gate.sv',
         'src\fpga\gba\gba_gpioRTCSolarGyro.vhd',
         'src\fpga\gba\gba_memorymux.vhd',
         'src\fpga\gba\gba_rtc_clock.vhd',

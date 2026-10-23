@@ -123,6 +123,17 @@ def main() -> int:
         root,
         [
             python,
+            "tests/reset_drain/run.py",
+            "--iverilog",
+            iverilog,
+            "--vvp",
+            vvp,
+        ],
+    )
+    run(
+        root,
+        [
+            python,
             "tests/snapshot/run.py",
             "--iverilog",
             iverilog,
